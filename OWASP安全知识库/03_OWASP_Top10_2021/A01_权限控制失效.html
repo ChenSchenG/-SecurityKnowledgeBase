@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A01: 权限控制失效 - OWASP Top 10</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <nav class="sidebar">
+    <h2>OWASP Top 10</h2>
+    <ul>
+      <li><a href="A01_权限控制失效.html" class="active">A01: 权限控制失效</a></li>
+      <li><a href="A02_加密机制失效.html">A02: 加密机制失效</a></li>
+      <li><a href="A03_注入攻击.html">A03: 注入攻击</a></li>
+      <li><a href="A04_不安全设计.html">A04: 不安全设计</a></li>
+      <li><a href="A05_安全配置错误.html">A05: 安全配置错误</a></li>
+      <li><a href="A06_过时组件.html">A06: 过时组件</a></li>
+      <li><a href="A07_认证失效.html">A07: 认证失效</a></li>
+      <li><a href="A08_软件完整性失效.html">A08: 软件完整性失效</a></li>
+      <li><a href="A09_日志监控失效.html">A09: 日志监控失效</a></li>
+      <li><a href="A10_SSRF.html">A10: SSRF</a></li>
+    </ul>
+    <h2>本页目录</h2>
+    <ul>
+      <li><a href="#overview">概述</a></li>
+      <li><a href="#horizontal">水平越权</a></li>
+      <li><a href="#vertical">垂直越权</a></li>
+      <li><a href="#idor">IDOR</a></li>
+      <li><a href="#path-traversal">目录遍历</a></li>
+      <li><a href="#forced-browsing">强制浏览</a></li>
+      <li><a href="#method-bypass">HTTP方法绕过</a></li>
+      <li><a href="#jwt">JWT漏洞</a></li>
+      <li><a href="#race-condition">竞态条件</a></li>
+      <li><a href="#defense">防御方案</a></li>
+    </ul>
+    <h2>导航</h2>
+    <ul>
+      <li><a href="../index.html">返回首页</a></li>
+    </ul>
+  </nav>
+
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../index.html">首页</a> / <a href="A01_权限控制失效.html">OWASP Top 10</a> / A01: 权限控制失效
+    </div>
+
+    <h1>A01:2021 - 权限控制失效</h1>
+    <p><span class="tag critical">CRITICAL</span> <span class="tag high">排名第1</span></p>
+    <p>Broken Access Control 从 2017 年的第 5 位上升到 2021 年的<strong>第 1 位</strong>。94% 的应用都被测试出存在某种形式的权限控制失效。这不是某个单一漏洞，而是一整类问题的总称。</p>
+
+    <div class="info-box note">
+      <div class="box-title">核心概念</div>
+      <p>访问控制强制执行策略，使用户不能在超出其预期权限范围外进行操作。失效通常导致：未授权信息泄露、数据篡改或删除、执行超出权限的业务功能。</p>
+    </div>
+
+    <!-- Section 1 -->
+    <h2 id="overview">1. 权限控制基础</h2>
+
+    <h3>1.1 认证 vs 授权</h3>
+    <table>
+      <thead><tr><th>概念</th><th>英文</th><th>回答的问题</th><th>对应机制</th></tr></thead>
+      <tbody>
+        <tr><td>认证</td><td>Authentication (AuthN)</td><td>你是谁？</td><td>密码、MFA、证书</td></tr>
+        <tr><td>授权</td><td>Authorization (AuthZ)</td><td>你能做什么？</td><td>ACL、RBAC、ABAC</td></tr>
+        <tr><td>审计</td><td>Auditing</td><td>你做了什么？</td><td>日志系统</td></tr>
+      </tbody>
+    </table>
+
+    <p><strong>权限控制失效 = 授权（Authorization）环节出了问题</strong>。用户已经通过认证（登录成功），但能访问或操作不属于自己权限范围的资源。</p>
+
+    <h3>1.2 权限控制模型</h3>
+    <table>
+      <thead><tr><th>模型</th><th>全称</th><th>原理</th><th>适用场景</th></tr></thead>
+      <tbody>
+        <tr><td><strong>DAC</strong></td><td>Discretionary Access Control</td><td>资源拥有者自行决定谁能访问</td><td>文件系统(Linux chmod)</td></tr>
+        <tr><td><strong>MAC</strong></td><td>Mandatory Access Control</td><td>系统强制执行，用户不能更改</td><td>军事系统, SELinux</td></tr>
+        <tr><td><strong>RBAC</strong></td><td>Role-Based Access Control</td><td>基于角色分配权限</td><td>大多数Web应用</td></tr>
+        <tr><td><strong>ABAC</strong></td><td>Attribute-Based Access Control</td><td>基于属性（时间/地点/部门等）动态决策</td><td>复杂企业系统</td></tr>
+      </tbody>
+    </table>
+
+    <div class="diagram">RBAC 模型示意：
+
+用户 ──分配──→ 角色 ──拥有──→ 权限
+
+示例：
+  用户Alice ──→ 普通用户角色 ──→ [查看自己订单, 修改个人信息]
+  用户Bob   ──→ 管理员角色   ──→ [查看所有订单, 修改用户信息, 删除用户]
+
+权限控制失效场景：
+  Alice 通过修改请求参数，执行了"管理员角色"才有的权限
+  Alice 通过修改URL中的ID，查看了 Bob 的订单</div>
+
+    <!-- Section 2 -->
+    <h2 id="horizontal">2. 水平越权（Horizontal Privilege Escalation）</h2>
+
+    <p><strong>定义</strong>：同级别用户 A 访问了用户 B 的数据。两者权限等级相同，但数据归属不同。</p>
+
+    <h3>2.1 典型场景</h3>
+    <div class="diagram">正常请求：
+  GET /api/orders/1001  (Alice的订单)
+  Cookie: session=alice_session_token
+
+攻击：Alice 修改订单ID
+  GET /api/orders/1002  (Bob的订单!)
+  Cookie: session=alice_session_token
+
+如果后端代码：
+  order = db.query("SELECT * FROM orders WHERE id = ?", order_id)
+  return order  // ← 没有验证 order.user_id == current_user.id
+
+→ Alice 就能看到 Bob 的订单详情（包括地址、手机号等敏感信息）</div>
+
+    <h3>2.2 漏洞代码 vs 安全代码</h3>
+    <pre><code># ❌ 漏洞代码 - 没有检查数据归属
+@app.route('/api/orders/&lt;int:order_id&gt;')
+@login_required
+def get_order(order_id):
+    order = Order.query.get(order_id)  # 只按ID查
+    if not order:
+        return {"error": "Not found"}, 404
+    return order.to_dict()  # 直接返回，没验证归属！
+
+# ✅ 安全代码 - 验证数据归属权
+@app.route('/api/orders/&lt;int:order_id&gt;')
+@login_required
+def get_order(order_id):
+    order = Order.query.get(order_id)
+    if not order:
+        return {"error": "Not found"}, 404
+    if order.user_id != current_user.id:  # ← 关键检查
+        return {"error": "Forbidden"}, 403
+    return order.to_dict()</code></pre>
+
+    <h3>2.3 水平越权的常见触发点</h3>
+    <ul>
+      <li>URL 路径中的 ID：<code>/profile/123</code> → <code>/profile/124</code></li>
+      <li>查询参数：<code>?user_id=123</code> → <code>?user_id=124</code></li>
+      <li>POST 请求体：<code>{"orderId": "1001"}</code> → <code>{"orderId": "1002"}</code></li>
+      <li>Cookie/Header 中的标识：<code>X-User-Id: 123</code>（如果后端信任前端传来的ID）</li>
+      <li>文件名/路径：<code>/files/user123/document.pdf</code> → <code>/files/user124/document.pdf</code></li>
+    </ul>
+
+    <!-- Section 3 -->
+    <h2 id="vertical">3. 垂直越权（Vertical Privilege Escalation）</h2>
+
+    <p><strong>定义</strong>：低权限用户执行了高权限用户才有的操作。例如普通用户执行管理员功能。</p>
+
+    <h3>3.1 典型场景</h3>
+    <div class="diagram">管理后台：
+  正常：admin 访问 /admin/users/delete?id=5 → 删除用户
+  攻击：普通用户直接访问 /admin/users/delete?id=5
+
+如果后端只靠"这个URL在管理员菜单里显示"来保护
+→ 攻击者直接输入URL即可绕过！
+
+前端隐藏 ≠ 后端保护！
+
+常见错误思维：
+  "这个按钮只有管理员界面才显示，普通用户看不到"
+  "前端已经判断了角色，后端不需要再判断"
+  → 大错特错！攻击者不通过你的前端界面发请求！</div>
+
+    <h3>3.2 真实案例模式</h3>
+    <pre><code># ❌ 漏洞代码 - 只在前端隐藏管理功能
+# 后端没有任何权限验证
+@app.route('/admin/users', methods=['DELETE'])
+@login_required  # 只验证了登录，没验证角色！
+def delete_user():
+    user_id = request.json['user_id']
+    User.query.filter_by(id=user_id).delete()
+    db.session.commit()
+    return {"message": "User deleted"}
+
+# ✅ 安全代码 - 后端强制验证角色
+@app.route('/admin/users', methods=['DELETE'])
+@login_required
+@require_role('admin')  # ← 装饰器验证角色
+def delete_user():
+    user_id = request.json['user_id']
+    User.query.filter_by(id=user_id).delete()
+    db.session.commit()
+    return {"message": "User deleted"}
+
+# 权限装饰器实现
+def require_role(role):
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            if current_user.role != role:
+                abort(403)  # Forbidden
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator</code></pre>
+
+    <!-- Section 4 -->
+    <h2 id="idor">4. IDOR - 不安全的直接对象引用</h2>
+
+    <p><strong>IDOR (Insecure Direct Object Reference)</strong> 是水平越权和垂直越权的具体表现形式之一。当应用使用用户可控的输入直接引用内部对象（数据库记录、文件等）时，就可能存在 IDOR。</p>
+
+    <h3>4.1 IDOR 的各种表现</h3>
+    <table>
+      <thead><tr><th>位置</th><th>漏洞URL/请求</th><th>攻击方式</th></tr></thead>
+      <tbody>
+        <tr><td>URL 路径</td><td><code>GET /api/invoices/INV-001</code></td><td>遍历: INV-002, INV-003...</td></tr>
+        <tr><td>查询参数</td><td><code>GET /download?file_id=85</code></td><td>修改: file_id=86, 87...</td></tr>
+        <tr><td>POST 请求体</td><td><code>POST /transfer {"to_account": "A123"}</code></td><td>修改目标账户</td></tr>
+        <tr><td>HTTP Header</td><td><code>X-Company-Id: 100</code></td><td>修改为其他公司ID</td></tr>
+        <tr><td>文件路径</td><td><code>GET /files/reports/2024/q1.pdf</code></td><td>修改路径查看其他文件</td></tr>
+      </tbody>
+    </table>
+
+    <h3>4.2 IDOR 挖掘技巧</h3>
+    <div class="info-box note">
+      <div class="box-title">渗透测试中如何找 IDOR</div>
+      <ol>
+        <li><strong>注册两个账户</strong>（A和B），分别操作，记录所有涉及ID的请求</li>
+        <li><strong>交叉测试</strong>：用 A 的身份请求 B 的资源ID</li>
+        <li><strong>关注所有数字/字符串ID</strong>：订单号、用户ID、文件名、UUID</li>
+        <li><strong>检查 API 文档</strong>：有时候文档会暴露内部ID格式</li>
+        <li><strong>尝试预测规律</strong>：连续数字？Base64编码？UUID是否真的随机？</li>
+        <li><strong>检查批量操作接口</strong>：<code>/api/users?ids=1,2,3,4,5</code></li>
+      </ol>
+    </div>
+
+    <h3>4.3 IDOR 防御</h3>
+    <ul>
+      <li><strong>服务端验证归属</strong>：每次访问都验证 <code>resource.owner == current_user</code></li>
+      <li><strong>使用间接引用</strong>：不暴露数据库ID，使用 session-specific 映射</li>
+      <li><strong>UUID 代替自增ID</strong>：增加遍历难度（但不能替代权限检查！）</li>
+      <li><strong>统一权限层</strong>：在框架层面强制所有查询都带权限过滤</li>
+    </ul>
+
+    <pre><code># 间接引用示例：用户只看到映射后的ID
+user_files_map = {}  # session中存储
+
+@app.route('/list-files')
+@login_required
+def list_files():
+    files = File.query.filter_by(owner=current_user.id).all()
+    # 为每个文件生成临时引用ID（只在当前session有效）
+    session['file_map'] = {str(i): f.id for i, f in enumerate(files)}
+    return [{"ref": str(i), "name": f.name} for i, f in enumerate(files)]
+
+@app.route('/download/&lt;ref&gt;')
+@login_required
+def download(ref):
+    file_map = session.get('file_map', {})
+    real_id = file_map.get(ref)
+    if not real_id:
+        abort(404)
+    # 即使用了间接引用，仍然验证归属
+    file = File.query.get(real_id)
+    if file.owner != current_user.id:
+        abort(403)
+    return send_file(file.path)</code></pre>
+
+    <!-- Section 5 -->
+    <h2 id="path-traversal">5. 目录遍历（Path Traversal）</h2>
+
+    <p>通过操纵文件路径参数，访问服务器上的任意文件。也称为 <strong>Directory Traversal</strong> 或 <strong>Dot-Dot-Slash</strong> 攻击。</p>
+
+    <h3>5.1 攻击原理</h3>
+    <pre><code># 正常请求
+GET /download?file=report.pdf
+→ 服务器读取 /var/www/files/report.pdf
+
+# 攻击请求
+GET /download?file=../../../etc/passwd
+→ 服务器读取 /var/www/files/../../../etc/passwd
+→ 实际读取 /etc/passwd !</code></pre>
+
+    <h3>5.2 绕过技术</h3>
+    <table>
+      <thead><tr><th>防御措施</th><th>绕过方法</th><th>示例</th></tr></thead>
+      <tbody>
+        <tr><td>过滤 <code>../</code></td><td>双写绕过</td><td><code>....//....//etc/passwd</code></td></tr>
+        <tr><td>过滤 <code>../</code></td><td>URL 编码</td><td><code>%2e%2e%2f</code> 或 <code>%252e%252e%252f</code></td></tr>
+        <tr><td>限制文件后缀</td><td>Null 字节截断(旧版PHP)</td><td><code>../etc/passwd%00.pdf</code></td></tr>
+        <tr><td>Linux 路径</td><td>绝对路径</td><td><code>/etc/passwd</code></td></tr>
+        <tr><td>替换为空</td><td>嵌套绕过</td><td><code>..././..././</code> → 替换后变成 <code>../../</code></td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.3 安全防御</h3>
+    <pre><code>import os
+
+# ✅ 安全的文件访问实现
+ALLOWED_BASE = '/var/www/files'
+
+def safe_read_file(filename):
+    # 1. 规范化路径（解析 ../ 和符号链接）
+    full_path = os.path.realpath(os.path.join(ALLOWED_BASE, filename))
+
+    # 2. 验证结果路径是否仍在允许的目录下
+    if not full_path.startswith(ALLOWED_BASE):
+        raise PermissionError("Path traversal detected!")
+
+    # 3. 检查文件是否存在
+    if not os.path.isfile(full_path):
+        raise FileNotFoundError("File not found")
+
+    return open(full_path, 'rb').read()</code></pre>
+
+    <!-- Section 6 -->
+    <h2 id="forced-browsing">6. 强制浏览（Forced Browsing）</h2>
+
+    <p>访问未被链接但实际存在的页面或文件。通过猜测或暴力枚举 URL 发现隐藏的管理页面、备份文件、配置文件等。</p>
+
+    <h3>6.1 常见敏感路径</h3>
+    <pre><code># 管理后台
+/admin, /admin/login, /administrator, /manage, /dashboard
+/wp-admin, /phpmyadmin, /adminer
+
+# 配置文件和备份
+/.env, /config.php.bak, /web.config, /application.yml
+/backup.sql, /dump.sql, /database.sql
+/.git/config, /.svn/entries
+
+# API 文档和调试
+/swagger-ui.html, /api-docs, /graphql
+/debug, /trace, /actuator (Spring Boot)
+/server-status, /server-info (Apache)
+
+# 用户数据
+/uploads/, /files/, /media/
+/tmp/, /logs/, /backups/</code></pre>
+
+    <h3>6.2 工具：目录爆破</h3>
+    <pre><code># gobuster - 快速目录/文件暴力枚举
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt
+
+# dirsearch - 支持递归扫描
+dirsearch -u http://target.com -e php,html,js -r
+
+# ffuf - 模糊测试工具（极快）
+ffuf -u http://target.com/FUZZ -w wordlist.txt -mc 200,301,302</code></pre>
+
+    <!-- Section 7 -->
+    <h2 id="method-bypass">7. HTTP 方法绕过</h2>
+
+    <p>有些权限控制只检查特定 HTTP 方法，攻击者通过使用不同的方法绕过限制。</p>
+
+    <div class="diagram">场景：WAF/代码只拦截 POST 请求的参数
+
+正常请求被拦截：
+  POST /admin/deleteUser HTTP/1.1
+  → WAF: 检测到敏感操作，拦截！
+
+绕过尝试：
+  GET /admin/deleteUser?id=5          ← 方法更改
+  PUT /admin/deleteUser               ← 方法更改
+  POST /admin/deleteUser HTTP/1.1
+  X-HTTP-Method-Override: PUT         ← 方法覆盖头
+
+  POST /admin/deleteUser HTTP/1.1
+  Content-Type: application/json      ← Content-Type变更
+  {"_method": "DELETE", "id": 5}      ← 框架级方法覆盖</div>
+
+    <h3>常见方法覆盖技巧</h3>
+    <pre><code># HTTP 方法覆盖头（很多框架支持）
+X-HTTP-Method: DELETE
+X-HTTP-Method-Override: PUT
+X-Method-Override: PATCH
+
+# URL 参数覆盖
+POST /api/users/5?_method=DELETE
+
+# 利用 TRACE 方法泄露信息
+TRACE / HTTP/1.1
+→ 服务器回显请求（可能包含认证Cookie）</code></pre>
+
+    <!-- Section 8 -->
+    <h2 id="jwt">8. JWT 相关权限漏洞</h2>
+
+    <p>JSON Web Token (JWT) 是现代 Web 应用最常用的认证/授权机制之一。但如果实现不当，会导致严重的权限问题。</p>
+
+    <h3>8.1 JWT 结构</h3>
+    <div class="diagram">JWT = Header.Payload.Signature
+
+eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjoiYWxpY2UiLCJyb2xlIjoidXNlciJ9.xxxxx
+|_____________________| |_________________________________________| |_____|
+       Header                        Payload                      Signature
+       (Base64)                      (Base64)                     (Base64)
+
+Header:  {"alg": "HS256", "typ": "JWT"}
+Payload: {"user": "alice", "role": "user", "exp": 1700000000}
+Signature: HMAC-SHA256(base64(header) + "." + base64(payload), secret)</div>
+
+    <h3>8.2 JWT 常见漏洞</h3>
+
+    <h4>漏洞1：alg=none 攻击</h4>
+    <pre><code># 原始token (HS256签名)
+# Header: {"alg": "HS256"}
+# Payload: {"user": "alice", "role": "user"}
+
+# 攻击：将算法改为 none，去掉签名
+import base64, json
+
+header = base64.urlsafe_b64encode(
+    json.dumps({"alg": "none", "typ": "JWT"}).encode()
+).rstrip(b'=')
+
+payload = base64.urlsafe_b64encode(
+    json.dumps({"user": "alice", "role": "admin"}).encode()  # 提权!
+).rstrip(b'=')
+
+# 无签名的token（末尾加点）
+forged_token = f"{header.decode()}.{payload.decode()}."
+
+# 如果服务端接受 alg=none → 权限提升成功！</code></pre>
+
+    <h4>漏洞2：将 RS256 改为 HS256</h4>
+    <pre><code># 正常：服务端用 RSA 私钥签名，用公钥验证
+# 攻击：把 alg 改成 HS256，用 RSA 公钥作为 HMAC 密钥签名
+# 如果服务端逻辑是：
+#   key = get_key()  # 获取公钥
+#   if header.alg == "HS256":
+#       verify_hmac(token, key)  # 用公钥当HMAC密钥验证！
+# → 攻击者知道公钥，可以用公钥签名伪造token！
+
+# 防御：验证时固定算法，不信任 header 中的 alg
+import jwt
+# ✅ 正确做法：强制指定算法
+decoded = jwt.decode(token, public_key, algorithms=["RS256"])</code></pre>
+
+    <h4>漏洞3：弱密钥暴力破解</h4>
+    <pre><code># 如果 HMAC 密钥太短/太简单，可以暴力破解
+# 工具: hashcat, jwt_tool
+
+# hashcat 破解 JWT 密钥
+hashcat -m 16500 jwt.txt wordlist.txt
+
+# jwt_tool 测试各种JWT漏洞
+python3 jwt_tool.py $TOKEN -C -d wordlist.txt  # 字典攻击
+python3 jwt_tool.py $TOKEN -X a               # alg=none 测试
+python3 jwt_tool.py $TOKEN -X k               # key confusion 测试</code></pre>
+
+    <h4>漏洞4：token 未验证过期时间</h4>
+    <pre><code># Payload 中的 exp 字段表示过期时间
+# 如果服务端不检查 exp → token 永不过期 → 泄露后永久可用
+
+# ✅ 正确验证
+decoded = jwt.decode(token, secret, algorithms=["HS256"],
+                     options={"verify_exp": True})  # 默认就会验证</code></pre>
+
+    <!-- Section 9 -->
+    <h2 id="race-condition">9. 竞态条件与权限</h2>
+
+    <p>TOCTOU (Time of Check to Time of Use) 漏洞：权限检查和实际操作之间存在时间差，攻击者在这个窗口期修改条件。</p>
+
+    <div class="diagram">TOCTOU 竞态条件：
+
+正常流程：
+  1. 检查用户余额: balance >= 100 ✓
+  2. 扣除余额: balance -= 100
+  3. 发放商品
+
+攻击：同时发送两个请求
+  线程1: 检查余额(100 >= 100 ✓) → 还没扣款
+  线程2: 检查余额(100 >= 100 ✓) → 还没扣款
+  线程1: 扣款(balance = 0) → 发货
+  线程2: 扣款(balance = -100) → 发货  ← 双重消费！
+
+同理用于优惠券、积分兑换、投票等场景</div>
+
+    <pre><code># ❌ 存在竞态条件的代码
+@app.route('/transfer', methods=['POST'])
+def transfer():
+    amount = request.json['amount']
+    # TOCTOU: 检查和操作不是原子的
+    if current_user.balance >= amount:  # 检查
+        time.sleep(0.01)  # 模拟处理延迟
+        current_user.balance -= amount   # 操作
+        target.balance += amount
+        db.session.commit()
+
+# ✅ 使用数据库锁保证原子性
+@app.route('/transfer', methods=['POST'])
+def transfer():
+    amount = request.json['amount']
+    # 使用 SELECT FOR UPDATE 加行锁
+    user = User.query.with_for_update().get(current_user.id)
+    if user.balance >= amount:
+        user.balance -= amount
+        target = User.query.with_for_update().get(target_id)
+        target.balance += amount
+        db.session.commit()
+    else:
+        abort(400, "Insufficient balance")</code></pre>
+
+    <!-- Section 10 -->
+    <h2 id="defense">10. 系统性防御方案</h2>
+
+    <h3>10.1 防御原则</h3>
+    <div class="info-box success">
+      <div class="box-title">权限控制设计原则</div>
+      <ol>
+        <li><strong>默认拒绝（Deny by Default）</strong>：除非明确允许，否则拒绝一切访问</li>
+        <li><strong>最小权限原则</strong>：只给予完成任务所需的最小权限</li>
+        <li><strong>服务端强制检查</strong>：永远不信任客户端的权限判断</li>
+        <li><strong>统一权限层</strong>：在一个地方集中处理权限，而非散落各处</li>
+        <li><strong>纵深防御</strong>：多层检查，任何一层失败都能阻止攻击</li>
+      </ol>
+    </div>
+
+    <h3>10.2 实现模式</h3>
+    <pre><code># 方案1：中间件统一权限检查（推荐）
+class PermissionMiddleware:
+    """所有请求经过统一权限检查"""
+
+    # 权限矩阵：path pattern → required role
+    RULES = [
+        (r'/admin/.*', ['admin']),
+        (r'/api/users/\d+/orders', ['admin', 'self']),  # self=只能访问自己的
+        (r'/api/.*', ['user', 'admin']),
+    ]
+
+    def process_request(self, request):
+        for pattern, roles in self.RULES:
+            if re.match(pattern, request.path):
+                if not self.check_permission(request.user, roles, request):
+                    return Response(status=403)
+        return None
+
+# 方案2：装饰器模式
+from functools import wraps
+
+def require_permission(*permissions):
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            for perm in permissions:
+                if not current_user.has_permission(perm):
+                    abort(403)
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+@app.route('/api/reports/&lt;int:report_id&gt;')
+@login_required
+@require_permission('view_reports')
+@require_ownership('report_id', Report)  # 自定义：验证资源归属
+def get_report(report_id):
+    ...
+
+# 方案3：查询级别过滤（最彻底）
+class SecureQuery:
+    """所有数据库查询自动加上权限过滤"""
+
+    @staticmethod
+    def get_user_orders(user):
+        # 查询本身就包含权限约束
+        return Order.query.filter_by(user_id=user.id)
+
+    @staticmethod
+    def get_all_orders(user):
+        if user.role != 'admin':
+            raise PermissionError()
+        return Order.query.all()</code></pre>
+
+    <h3>10.3 检查清单</h3>
+    <table>
+      <thead><tr><th>检查项</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>是否所有 API 都有权限检查？</td><td>包括 GET/POST/PUT/DELETE 所有方法</td></tr>
+        <tr><td>是否验证了数据归属？</td><td>不仅检查角色，还要检查"这条数据是你的吗"</td></tr>
+        <tr><td>ID 是否可预测/可遍历？</td><td>使用 UUID 增加难度（但不替代权限检查）</td></tr>
+        <tr><td>管理功能是否有后端保护？</td><td>不能仅靠前端隐藏</td></tr>
+        <tr><td>是否有速率限制？</td><td>防止批量遍历</td></tr>
+        <tr><td>是否记录了异常访问？</td><td>权限拒绝应该触发告警</td></tr>
+        <tr><td>是否有自动化测试？</td><td>权限矩阵应该有对应的测试用例</td></tr>
+      </tbody>
+    </table>
+
+    <h3>10.4 Burp Suite 测试权限的实战流程</h3>
+    <div class="diagram">使用 Burp Suite 测试权限控制：
+
+1. 配置两个账户的 Session
+   - 账户A (普通用户): 使用 Session 1
+   - 账户B (管理员): 使用 Session 2
+
+2. 用账户B正常操作，记录所有请求
+   Burp Proxy → HTTP History
+
+3. 将账户B的请求发送到 Repeater
+   - 替换 Cookie/Token 为账户A的
+   - 观察响应
+
+4. 使用 Autorize 插件自动化测试
+   - 配置低权限 Cookie
+   - 自动对比每个请求在不同权限下的响应
+   - 标记可能存在越权的请求
+
+5. 重点测试：
+   □ 所有包含 ID 参数的接口
+   □ 管理后台的每个功能
+   □ 修改/删除操作
+   □ 文件下载/导出功能
+   □ 批量操作接口</div>
+
+    <div class="info-box warning">
+      <div class="box-title">真实世界案例</div>
+      <ul>
+        <li><strong>Facebook (2018)</strong>：通过修改 API 中的用户 ID，可以删除任意用户的照片</li>
+        <li><strong>某航空公司</strong>：修改订单号可查看他人机票信息（姓名、身份证、行程）</li>
+        <li><strong>某电商平台</strong>：修改优惠券ID可使用他人的大额优惠券</li>
+        <li><strong>某银行APP</strong>：修改转账接口中的 from_account 可从他人账户转账</li>
+      </ul>
+    </div>
+
+    <div class="nav-footer">
+      <a href="../index.html">&larr; 返回首页</a>
+      <a href="A02_加密机制失效.html">A02: 加密机制失效 &rarr;</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

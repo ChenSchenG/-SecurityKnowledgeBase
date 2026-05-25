@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A04: 不安全设计 - OWASP Top 10</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <nav class="sidebar">
+    <h2>OWASP Top 10</h2>
+    <ul>
+      <li><a href="A01_权限控制失效.html">A01: 权限控制失效</a></li>
+      <li><a href="A02_加密机制失效.html">A02: 加密机制失效</a></li>
+      <li><a href="A03_注入攻击.html">A03: 注入攻击</a></li>
+      <li><a href="A04_不安全设计.html" class="active">A04: 不安全设计</a></li>
+      <li><a href="A05_安全配置错误.html">A05: 安全配置错误</a></li>
+      <li><a href="A06_过时组件.html">A06: 过时组件</a></li>
+      <li><a href="A07_认证失效.html">A07: 认证失效</a></li>
+      <li><a href="A08_软件完整性失效.html">A08: 软件完整性失效</a></li>
+      <li><a href="A09_日志监控失效.html">A09: 日志监控失效</a></li>
+      <li><a href="A10_SSRF.html">A10: SSRF</a></li>
+    </ul>
+    <h2>本页目录</h2>
+    <ul>
+      <li><a href="#overview">概述</a></li>
+      <li><a href="#threat-modeling">威胁建模</a></li>
+      <li><a href="#secure-design">安全设计原则</a></li>
+      <li><a href="#abuse-cases">滥用案例</a></li>
+      <li><a href="#business-logic">业务逻辑缺陷</a></li>
+      <li><a href="#attack-scenarios">攻击场景</a></li>
+      <li><a href="#sdlc">安全开发生命周期</a></li>
+      <li><a href="#defense">防御方案</a></li>
+    </ul>
+    <h2>导航</h2>
+    <ul>
+      <li><a href="../index.html">返回首页</a></li>
+    </ul>
+  </nav>
+
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../index.html">首页</a> / <a href="A01_权限控制失效.html">OWASP Top 10</a> / A04: 不安全设计
+    </div>
+
+    <h1>A04:2021 - 不安全设计 (Insecure Design)</h1>
+    <p><span class="tag high">HIGH</span> <span class="tag">排名第4 (新增)</span></p>
+    <p>Insecure Design 是 2021 年新增的分类。它关注的不是实现层面的 bug，而是<strong>设计和架构层面</strong>的缺陷。即使代码写得完美无缺，如果设计本身有安全漏洞，系统仍然是脆弱的。</p>
+
+    <div class="info-box danger">
+      <div class="box-title">不安全设计 vs 不安全实现</div>
+      <p><strong>不安全设计</strong>：设计阶段就缺失安全控制。例如"密码找回功能设计为仅通过安全问题验证"——无论代码如何实现，安全问题本身就容易被社工猜出。</p>
+      <p><strong>不安全实现</strong>：设计正确但代码实现有 bug。例如设计要求密码哈希存储，但开发者用了 MD5。</p>
+      <p>不安全的设计无法通过完美的实现来修复——你需要重新设计。</p>
+    </div>
+
+    <!-- Section 1 -->
+    <h2 id="overview">1. 概述与核心概念</h2>
+
+    <h3>1.1 为什么设计阶段如此重要</h3>
+    <div class="diagram">修复成本随阶段指数增长：
+
+阶段          相对成本     修复难度
+─────────────────────────────────────────
+需求阶段       1x          修改文档
+设计阶段       5x          修改架构图
+编码阶段       10x         修改代码+测试
+测试阶段       20x         回归+修改+再测试
+上线后         100x        紧急补丁+事故响应+声誉损失
+
+结论：安全必须"左移"(Shift Left)
+越早发现设计缺陷，修复成本越低</div>
+
+    <h3>1.2 不安全设计的典型表现</h3>
+    <table>
+      <thead><tr><th>类别</th><th>不安全设计示例</th><th>正确做法</th></tr></thead>
+      <tbody>
+        <tr><td>业务逻辑</td><td>优惠券无使用次数限制</td><td>设计时定义使用限制和互斥规则</td></tr>
+        <tr><td>认证设计</td><td>密码找回仅用安全问题</td><td>多因素验证 + 邮件/短信验证码</td></tr>
+        <tr><td>数据流</td><td>客户端决定商品价格</td><td>价格由服务端计算，客户端仅提交数量</td></tr>
+        <tr><td>信任边界</td><td>信任所有内网请求</td><td>零信任架构，内网也需认证</td></tr>
+        <tr><td>速率控制</td><td>无限制的 API 调用</td><td>Rate Limiting + 防滥用机制</td></tr>
+        <tr><td>错误处理</td><td>异常时回退到无认证模式</td><td>Fail Secure - 异常时拒绝访问</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 2 -->
+    <h2 id="threat-modeling">2. 威胁建模 (Threat Modeling)</h2>
+
+    <p>威胁建模是在设计阶段系统性地识别和评估安全威胁的方法。它是防止不安全设计的最重要手段。</p>
+
+    <h3>2.1 STRIDE 威胁模型</h3>
+    <table>
+      <thead><tr><th>威胁类型</th><th>英文</th><th>描述</th><th>安全属性</th><th>示例</th></tr></thead>
+      <tbody>
+        <tr><td><strong>S</strong>伪造</td><td>Spoofing</td><td>冒充他人身份</td><td>认证</td><td>伪造JWT、Session劫持</td></tr>
+        <tr><td><strong>T</strong>篡改</td><td>Tampering</td><td>未授权修改数据</td><td>完整性</td><td>修改传输中的数据、SQL注入</td></tr>
+        <tr><td><strong>R</strong>否认</td><td>Repudiation</td><td>否认执行过的操作</td><td>不可否认性</td><td>删除日志、无审计追踪</td></tr>
+        <tr><td><strong>I</strong>泄露</td><td>Info Disclosure</td><td>信息泄露给未授权方</td><td>机密性</td><td>错误信息泄露、目录遍历</td></tr>
+        <tr><td><strong>D</strong>拒绝服务</td><td>Denial of Service</td><td>使系统不可用</td><td>可用性</td><td>资源耗尽、死锁</td></tr>
+        <tr><td><strong>E</strong>提权</td><td>Elevation of Privilege</td><td>获取更高权限</td><td>授权</td><td>垂直越权、内核漏洞</td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.2 威胁建模流程</h3>
+    <div class="diagram">威胁建模四步法：
+
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│  1. 分解系统  │───→│ 2. 识别威胁  │───→│ 3. 评估风险  │───→│ 4. 制定对策  │
+└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+       │                  │                  │                  │
+       ▼                  ▼                  ▼                  ▼
+  绘制数据流图        对每个组件         风险 = 影响 ×       确定缓解措施
+  识别信任边界        应用STRIDE         可能性              优先级排序
+  标记数据存储        列出威胁清单       DREAD评分           验证有效性
+  标记外部实体
+
+数据流图 (DFD) 示例 - 电商登录流程：
+
+  ┌──────────┐         ┌──────────┐         ┌──────────┐
+  │  浏览器   │──HTTP──→│  Web服务  │──TCP───→│  数据库   │
+  │ (外部实体) │←─────── │ (处理过程) │←─────── │ (数据存储) │
+  └──────────┘         └──────────┘         └──────────┘
+       │              ┌────┴────┐
+       │              │ 信任边界  │
+       └──────────────┤ (防火墙) │
+                      └─────────┘
+
+对 Web服务 应用 STRIDE：
+  S - 攻击者能否伪造请求？ → 需要CSRF Token
+  T - 传输数据能否被篡改？ → 需要HTTPS
+  R - 操作能否追溯？      → 需要审计日志
+  I - 错误是否泄露信息？   → 需要通用错误页
+  D - 能否被资源耗尽？    → 需要限流
+  E - 能否越权？          → 需要RBAC</div>
+
+    <h3>2.3 DREAD 风险评分</h3>
+    <table>
+      <thead><tr><th>维度</th><th>英文</th><th>评分标准 (1-10)</th></tr></thead>
+      <tbody>
+        <tr><td><strong>D</strong>amage</td><td>损害程度</td><td>攻击成功后造成多大危害？</td></tr>
+        <tr><td><strong>R</strong>eproducibility</td><td>可复现性</td><td>攻击能否稳定复现？</td></tr>
+        <tr><td><strong>E</strong>xploitability</td><td>可利用性</td><td>利用难度多大？需要什么条件？</td></tr>
+        <tr><td><strong>A</strong>ffected Users</td><td>影响范围</td><td>影响多少用户？</td></tr>
+        <tr><td><strong>D</strong>iscoverability</td><td>可发现性</td><td>漏洞多容易被发现？</td></tr>
+      </tbody>
+    </table>
+
+    <pre><code># DREAD 评分示例：电商平台价格篡改漏洞
+#
+# Damage:          9/10  (直接经济损失)
+# Reproducibility: 10/10 (100%可复现)
+# Exploitability:  8/10  (只需修改HTTP请求)
+# Affected Users:  7/10  (影响所有商品)
+# Discoverability: 6/10  (需要抓包分析)
+#
+# 总分: (9+10+8+7+6)/5 = 8.0 → 高风险，需要立即修复</code></pre>
+
+    <!-- Section 3 -->
+    <h2 id="secure-design">3. 安全设计原则</h2>
+
+    <h3>3.1 核心设计原则</h3>
+    <div class="info-box success">
+      <div class="box-title">安全设计十大原则</div>
+      <ol>
+        <li><strong>最小权限 (Least Privilege)</strong>：只给予完成任务所需的最少权限</li>
+        <li><strong>纵深防御 (Defense in Depth)</strong>：多层安全控制，一层失败不致系统沦陷</li>
+        <li><strong>安全默认 (Secure Defaults)</strong>：默认配置应该是安全的</li>
+        <li><strong>失败安全 (Fail Secure)</strong>：异常时拒绝访问，而非允许</li>
+        <li><strong>不信任任何输入 (Zero Trust Input)</strong>：所有外部数据都视为恶意</li>
+        <li><strong>职责分离 (Separation of Duties)</strong>：关键操作需要多人/多步骤确认</li>
+        <li><strong>保持简洁 (Keep It Simple)</strong>：复杂系统更容易出错</li>
+        <li><strong>开放设计 (Open Design)</strong>：安全性不依赖于设计的保密（Kerckhoffs原则）</li>
+        <li><strong>完全中介 (Complete Mediation)</strong>：每次访问都检查权限，不依赖缓存</li>
+        <li><strong>心理可接受性 (Psychological Acceptability)</strong>：安全机制不应让用户体验过差</li>
+      </ol>
+    </div>
+
+    <h3>3.2 Fail Secure vs Fail Open</h3>
+    <pre><code># ❌ Fail Open - 认证服务宕机时允许所有请求
+def authenticate(request):
+    try:
+        result = auth_service.verify(request.token)
+        return result.is_valid
+    except AuthServiceUnavailable:
+        # 认证服务挂了，先放行吧...
+        logger.warning("Auth service down, allowing request")
+        return True  # 危险！攻击者可以故意打垮认证服务
+
+# ✅ Fail Secure - 认证服务宕机时拒绝所有请求
+def authenticate(request):
+    try:
+        result = auth_service.verify(request.token)
+        return result.is_valid
+    except AuthServiceUnavailable:
+        # 认证服务挂了，安全起见拒绝访问
+        logger.critical("Auth service down, denying all requests")
+        raise ServiceUnavailableError("Please try again later")
+
+# ❌ Fail Open - 防火墙规则异常时放行
+# iptables 默认 policy ACCEPT + 规则加载失败 = 无防护
+#
+# ✅ Fail Secure - 防火墙默认拒绝
+# iptables -P INPUT DROP   ← 默认拒绝
+# iptables -P FORWARD DROP
+# 然后逐条添加允许规则</code></pre>
+
+    <h3>3.3 信任边界设计</h3>
+    <div class="diagram">信任边界划分示例 - 微服务架构：
+
+                    ┌─── 不可信区域 (Internet) ───┐
+                    │                              │
+                    │    ┌──────────────────┐      │
+                    │    │  攻击者/用户浏览器  │      │
+                    │    └────────┬─────────┘      │
+                    │             │                 │
+════════════════════╪═════════════╪═════════════════╪════ 信任边界1 (WAF/CDN)
+                    │             ▼                 │
+                    │    ┌──────────────────┐      │
+                    │    │   API Gateway     │      │
+                    │    │  (认证/限流/路由)   │      │
+                    │    └────────┬─────────┘      │
+                    │             │                 │
+════════════════════╪═════════════╪═════════════════╪════ 信任边界2 (内网边界)
+                    │             ▼                 │
+                    │  ┌───────┐ ┌───────┐ ┌───────┐│
+                    │  │用户服务│ │订单服务│ │支付服务││
+                    │  └───┬───┘ └───┬───┘ └───┬───┘│
+                    │      │         │         │    │
+════════════════════╪══════╪═════════╪═════════╪════╪════ 信任边界3 (数据层)
+                    │      ▼         ▼         ▼    │
+                    │  ┌───────┐ ┌───────┐ ┌───────┐│
+                    │  │User DB│ │Order DB│ │Pay DB ││
+                    │  └───────┘ └───────┘ └───────┘│
+                    └──────────────────────────────┘
+
+每跨越一个信任边界，都需要：
+  ✓ 身份验证 (谁在访问？)
+  ✓ 输入验证 (数据合法吗？)
+  ✓ 权限检查 (有权访问吗？)
+  ✓ 加密传输 (mTLS)</div>
+
+    <!-- Section 4 -->
+    <h2 id="abuse-cases">4. 滥用案例 (Abuse Cases)</h2>
+
+    <p>传统的 Use Case 描述系统"应该怎么用"。<strong>Abuse Case</strong> 描述系统"会被怎么滥用"。安全设计要求同时考虑两者。</p>
+
+    <h3>4.1 User Story vs Abuse Story</h3>
+    <table>
+      <thead><tr><th>User Story (正常)</th><th>Abuse Story (攻击)</th><th>安全需求</th></tr></thead>
+      <tbody>
+        <tr><td>用户可以注册账户</td><td>攻击者批量注册垃圾账户</td><td>CAPTCHA、邮箱验证、速率限制</td></tr>
+        <tr><td>用户可以找回密码</td><td>攻击者枚举有效用户名</td><td>统一响应消息、不透露账号是否存在</td></tr>
+        <tr><td>用户可以使用优惠券</td><td>攻击者重复使用同一优惠券</td><td>幂等性设计、使用后标记</td></tr>
+        <tr><td>用户可以评价商品</td><td>竞争对手刷差评</td><td>购买验证、异常行为检测</td></tr>
+        <tr><td>用户可以转账</td><td>利用竞态条件双重花费</td><td>原子操作、分布式锁</td></tr>
+        <tr><td>用户可以下载文件</td><td>攻击者下载未授权文件</td><td>间接引用、权限校验</td></tr>
+      </tbody>
+    </table>
+
+    <h3>4.2 编写 Abuse Case 的方法</h3>
+    <pre><code># Abuse Case 模板
+
+标题: AC-001 批量抢购优惠商品
+攻击者: 黄牛/竞争对手
+前置条件: 拥有多个账号或自动化脚本
+攻击步骤:
+  1. 攻击者使用脚本批量创建账号
+  2. 在限时抢购开始瞬间，同时提交数百个订单
+  3. 利用超卖漏洞获取超量商品
+  4. 倒卖获利
+
+影响: 正常用户无法购买，商家库存异常，经济损失
+风险等级: 高
+
+安全需求 (对应防御设计):
+  SR-001: 限购机制 - 每人每次最多购买N件
+  SR-002: 库存扣减原子性 - 使用数据库锁防止超卖
+  SR-003: 人机验证 - 抢购前强制验证码
+  SR-004: 设备指纹 - 检测同一设备多账号
+  SR-005: 异常监控 - 检测异常高频下单行为</code></pre>
+
+    <!-- Section 5 -->
+    <h2 id="business-logic">5. 业务逻辑缺陷</h2>
+
+    <p>业务逻辑漏洞是不安全设计最典型的表现。它们无法被自动化扫描器发现，因为每个应用的业务逻辑都不同。</p>
+
+    <h3>5.1 常见业务逻辑缺陷类型</h3>
+    <div class="diagram">业务逻辑漏洞分类：
+
+┌────────────────────────────────────────────────────────┐
+│                    业务逻辑缺陷                          │
+├──────────────┬──────────────┬──────────────┬───────────┤
+│  流程绕过     │  数值操纵     │  竞态条件     │  功能滥用  │
+│              │              │              │           │
+│ 跳过支付步骤  │ 负数金额转账  │ 双重花费      │ 推荐奖励刷 │
+│ 跳过验证步骤  │ 价格篡改      │ 库存超卖      │ 优惠券滥用 │
+│ 重放攻击     │ 数量溢出      │ 投票刷票      │ 接口滥用   │
+└──────────────┴──────────────┴──────────────┴───────────┘</code></pre>
+
+    <h3>5.2 价格篡改 (Price Manipulation)</h3>
+    <pre><code># ❌ 不安全设计：客户端提交价格
+
+# 前端代码
+fetch('/api/order', {
+    method: 'POST',
+    body: JSON.stringify({
+        product_id: 1001,
+        quantity: 1,
+        price: 99.00  // ← 客户端传递价格!
+    })
+});
+
+# 攻击者修改请求
+{
+    "product_id": 1001,
+    "quantity": 1,
+    "price": 0.01  // ← 篡改为1分钱!
+}
+
+# ✅ 安全设计：服务端计算价格
+@app.route('/api/order', methods=['POST'])
+def create_order():
+    data = request.json
+    product = Product.query.get(data['product_id'])
+
+    # 价格从数据库获取，不信任客户端
+    unit_price = product.current_price
+    quantity = data['quantity']
+
+    # 服务端计算总价
+    total = unit_price * quantity
+
+    # 应用优惠（服务端验证优惠规则）
+    discount = calculate_discount(current_user, product, quantity)
+    final_price = total - discount
+
+    if final_price <= 0:
+        abort(400, "Invalid price calculation")
+
+    order = Order(
+        user_id=current_user.id,
+        product_id=product.id,
+        quantity=quantity,
+        unit_price=unit_price,
+        total_price=final_price
+    )
+    db.session.add(order)
+    db.session.commit()</code></pre>
+
+    <h3>5.3 流程绕过 (Process Bypass)</h3>
+    <div class="diagram">多步骤流程绕过攻击：
+
+正常购物流程：
+  Step1: 选商品 → Step2: 填地址 → Step3: 支付 → Step4: 完成
+
+攻击：直接请求 Step4 的接口
+  POST /api/order/complete
+  {"order_id": "ORD-12345"}
+  → 如果后端不验证前置步骤是否完成 → 免费拿货！
+
+防御设计：状态机模型
+  ┌──────┐    ┌──────┐    ┌──────┐    ┌──────┐
+  │ CART │───→│ADDRESS│───→│ PAID │───→│SHIPPED│
+  └──────┘    └──────┘    └──────┘    └──────┘
+       ↑           │           │
+       └───────────┘           │ (只有PAID状态才能发货)
+       (可回退)                 ↓
+                          ┌──────────┐
+                          │COMPLETED │
+                          └──────────┘
+
+每个状态转换都验证：
+  1. 当前状态是否允许此转换？
+  2. 前置条件是否满足？
+  3. 操作人是否有权限？</div>
+
+    <pre><code># ✅ 状态机设计 - 防止流程绕过
+class OrderStateMachine:
+    TRANSITIONS = {
+        'cart':      ['address'],        # cart 只能到 address
+        'address':   ['payment', 'cart'], # address 可到 payment 或回退
+        'payment':   ['paid'],           # payment 只能到 paid
+        'paid':      ['shipped'],        # paid 只能到 shipped
+        'shipped':   ['completed'],      # shipped 只能到 completed
+    }
+
+    @staticmethod
+    def can_transition(order, target_state):
+        current = order.state
+        allowed = OrderStateMachine.TRANSITIONS.get(current, [])
+        return target_state in allowed
+
+    @staticmethod
+    def transition(order, target_state):
+        if not OrderStateMachine.can_transition(order, target_state):
+            raise InvalidStateTransition(
+                f"Cannot move from '{order.state}' to '{target_state}'"
+            )
+        # 验证前置条件
+        if target_state == 'shipped' and not order.payment_confirmed:
+            raise PreconditionFailed("Payment not confirmed")
+        order.state = target_state
+        order.state_history.append({
+            'from': order.state,
+            'to': target_state,
+            'timestamp': datetime.now(),
+            'actor': current_user.id
+        })</code></pre>
+
+    <h3>5.4 数值操纵 (Numeric Manipulation)</h3>
+    <pre><code># ❌ 负数转账攻击
+POST /api/transfer
+{
+    "from": "attacker_account",
+    "to": "victim_account",
+    "amount": -1000  // 负数！相当于从对方账户转钱到自己
+}
+
+# 后端代码（漏洞）
+def transfer(from_acc, to_acc, amount):
+    from_acc.balance -= amount    # 减去-1000 = 加1000
+    to_acc.balance += amount      # 加上-1000 = 减1000
+    # 攻击者余额增加，受害者余额减少！
+
+# ✅ 安全设计：严格验证数值
+def transfer(from_acc, to_acc, amount):
+    # 类型检查
+    if not isinstance(amount, (int, float)):
+        raise ValueError("Amount must be numeric")
+
+    # 范围检查
+    if amount <= 0:
+        raise ValueError("Amount must be positive")
+
+    if amount > MAX_TRANSFER_LIMIT:
+        raise ValueError("Exceeds transfer limit")
+
+    # 精度检查（防止浮点数精度攻击）
+    amount = Decimal(str(amount)).quantize(Decimal('0.01'))
+
+    # 余额检查
+    if from_acc.balance < amount:
+        raise InsufficientFunds()
+
+    # 原子操作
+    with db.atomic():
+        from_acc.balance -= amount
+        to_acc.balance += amount</code></pre>
+
+    <!-- Section 6 -->
+    <h2 id="attack-scenarios">6. 真实攻击场景</h2>
+
+    <h3>6.1 场景一：验证码绕过 (OTP Bypass)</h3>
+    <div class="info-box warning">
+      <div class="box-title">案例：某电商平台手机验证码绕过</div>
+      <p><strong>设计缺陷</strong>：验证码验证接口在验证成功后，没有将验证码标记为已使用。</p>
+      <p><strong>攻击步骤</strong>：</p>
+      <ol>
+        <li>请求发送验证码到自己手机</li>
+        <li>正确输入验证码，验证成功</li>
+        <li>拦截"验证成功"的响应，但不继续下一步</li>
+        <li>修改手机号为受害者号码，重放验证成功的请求</li>
+        <li>系统认为受害者手机已验证 → 接管账户</li>
+      </ol>
+    </div>
+
+    <pre><code># 安全设计要求：
+# 1. 验证码与手机号绑定
+# 2. 验证码使用后立即失效
+# 3. 验证结果与后续操作通过 server-side session 关联
+
+class OTPVerification:
+    def verify(self, phone, code, purpose):
+        stored = redis.get(f"otp:{phone}:{purpose}")
+        if not stored or stored != code:
+            return False
+
+        # 验证成功后立即删除（一次性使用）
+        redis.delete(f"otp:{phone}:{purpose}")
+
+        # 在 session 中记录验证结果（不依赖客户端）
+        session[f'verified_{purpose}'] = {
+            'phone': phone,
+            'timestamp': time.time(),
+            'expires': time.time() + 300  # 5分钟有效
+        }
+        return True
+
+    def is_verified(self, purpose, expected_phone):
+        verification = session.get(f'verified_{purpose}')
+        if not verification:
+            return False
+        if verification['phone'] != expected_phone:
+            return False  # 手机号不匹配
+        if time.time() > verification['expires']:
+            return False  # 已过期
+        return True</code></pre>
+
+    <h3>6.2 场景二：无限优惠券 (Coupon Abuse)</h3>
+    <pre><code># 攻击场景：优惠券系统设计缺陷
+
+# 缺陷1：优惠券使用无幂等性检查
+# 同一订单多次提交优惠券请求 → 多次扣减
+
+# 缺陷2：优惠券金额可超过订单金额
+# 100元商品使用200元优惠券 → 退款100元到余额
+
+# 缺陷3：优惠券可在取消订单后复用
+# 下单使用优惠券 → 取消订单 → 优惠券恢复 → 已获得的优惠保留
+
+# ✅ 安全设计
+class CouponSystem:
+    def apply_coupon(self, order, coupon_code):
+        coupon = Coupon.query.filter_by(code=coupon_code).first()
+
+        # 检查1：优惠券是否存在和有效
+        if not coupon or coupon.status != 'active':
+            raise InvalidCoupon()
+
+        # 检查2：是否过期
+        if coupon.expires_at < datetime.now():
+            raise CouponExpired()
+
+        # 检查3：是否已被使用（幂等性）
+        if coupon.used_by_order_id is not None:
+            raise CouponAlreadyUsed()
+
+        # 检查4：使用条件（最低消费等）
+        if order.subtotal < coupon.min_order_amount:
+            raise MinAmountNotMet()
+
+        # 检查5：折扣金额不能超过订单金额
+        discount = min(coupon.discount_amount, order.subtotal)
+
+        # 检查6：用户限制（每人限用一次等）
+        if CouponUsage.query.filter_by(
+            user_id=current_user.id, coupon_type=coupon.type
+        ).count() >= coupon.per_user_limit:
+            raise CouponLimitReached()
+
+        # 原子操作：标记使用
+        with db.atomic():
+            coupon.status = 'used'
+            coupon.used_by_order_id = order.id
+            coupon.used_at = datetime.now()
+            order.discount = discount
+            order.total = order.subtotal - discount</code></pre>
+
+    <h3>6.3 场景三：投票/抽奖系统滥用</h3>
+    <div class="diagram">投票系统设计缺陷分析：
+
+不安全设计：
+  POST /api/vote {"candidate_id": 1}
+  → 仅检查用户是否登录
+  → 不检查是否已投票
+  → 无 IP/设备 限制
+
+攻击方式：
+  1. 多账号投票：批量注册 → 批量投票
+  2. 并发投票：利用竞态条件在检查和写入之间多次投票
+  3. 代理IP：绕过IP限制
+
+安全设计：
+  ┌───────────────────────────────────────┐
+  │           投票防刷系统                  │
+  │                                       │
+  │  Layer 1: 用户维度                     │
+  │    - 每账号限投一次 (DB唯一约束)         │
+  │    - 账号需实名认证                     │
+  │                                       │
+  │  Layer 2: 设备维度                     │
+  │    - 设备指纹（Browser Fingerprint）    │
+  │    - 每设备限投N次                      │
+  │                                       │
+  │  Layer 3: 网络维度                     │
+  │    - IP 限流                           │
+  │    - 检测代理/VPN                      │
+  │                                       │
+  │  Layer 4: 行为维度                     │
+  │    - 验证码/人机验证                    │
+  │    - 异常模式检测                      │
+  │    - 投票时间间隔分析                   │
+  └───────────────────────────────────────┘</div>
+
+    <!-- Section 7 -->
+    <h2 id="sdlc">7. 安全开发生命周期 (Secure SDLC)</h2>
+
+    <h3>7.1 各阶段安全活动</h3>
+    <table>
+      <thead><tr><th>开发阶段</th><th>安全活动</th><th>产出物</th><th>工具/方法</th></tr></thead>
+      <tbody>
+        <tr><td>需求</td><td>安全需求分析、Abuse Case</td><td>安全需求文档</td><td>OWASP ASVS</td></tr>
+        <tr><td>设计</td><td>威胁建模、安全架构评审</td><td>威胁模型、设计决策</td><td>STRIDE, Microsoft TMT</td></tr>
+        <tr><td>编码</td><td>安全编码规范、代码审查</td><td>安全代码</td><td>SAST (SonarQube, Semgrep)</td></tr>
+        <tr><td>测试</td><td>安全测试、渗透测试</td><td>漏洞报告</td><td>DAST (ZAP, Burp), Fuzzing</td></tr>
+        <tr><td>部署</td><td>安全配置、加固检查</td><td>部署检查清单</td><td>CIS Benchmark, Ansible</td></tr>
+        <tr><td>运维</td><td>监控、事件响应、补丁管理</td><td>安全运维流程</td><td>SIEM, WAF, IDS</td></tr>
+      </tbody>
+    </table>
+
+    <h3>7.2 安全需求清单 (基于 OWASP ASVS)</h3>
+    <pre><code># OWASP ASVS (Application Security Verification Standard) 核心章节
+
+V1: 架构、设计和威胁建模
+  □ 所有组件已识别并有明确的安全需求
+  □ 已进行威胁建模
+  □ 所有数据流已标识并有安全控制
+
+V2: 认证
+  □ 密码策略: 最少8字符，支持64+字符
+  □ 防暴力破解: 账户锁定或渐进延迟
+  □ 凭证安全存储: bcrypt/scrypt/Argon2
+
+V3: 会话管理
+  □ Session ID 足够随机（至少128bit熵）
+  □ 登出后 Session 立即失效
+  □ 空闲超时和绝对超时
+
+V4: 访问控制
+  □ 默认拒绝原则
+  □ 所有数据访问都验证归属
+  □ 管理功能有独立的权限验证
+
+V5: 输入验证
+  □ 所有输入在服务端验证
+  □ 使用参数化查询
+  □ 输出编码防止注入
+
+V13: API 安全
+  □ API 有认证和授权
+  □ 速率限制
+  □ 输入大小限制</code></pre>
+
+    <!-- Section 8 -->
+    <h2 id="defense">8. 防御方案总结</h2>
+
+    <h3>8.1 安全设计检查清单</h3>
+    <div class="info-box note">
+      <div class="box-title">设计评审时的安全检查点</div>
+      <table>
+        <thead><tr><th>检查维度</th><th>问题</th></tr></thead>
+        <tbody>
+          <tr><td>信任边界</td><td>数据来源是否可信？是否需要验证？</td></tr>
+          <tr><td>输入验证</td><td>所有外部输入是否在服务端验证？</td></tr>
+          <tr><td>业务规则</td><td>是否考虑了滥用场景？是否有限制？</td></tr>
+          <tr><td>状态管理</td><td>流程是否可跳步？是否有状态机？</td></tr>
+          <tr><td>并发安全</td><td>关键操作是否原子？是否防竞态？</td></tr>
+          <tr><td>失败处理</td><td>异常时是 Fail Secure 还是 Fail Open？</td></tr>
+          <tr><td>数据流向</td><td>敏感数据是否被不必要地传递？</td></tr>
+          <tr><td>日志审计</td><td>关键操作是否有审计日志？</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>8.2 工具与资源</h3>
+    <table>
+      <thead><tr><th>工具/标准</th><th>用途</th><th>适用阶段</th></tr></thead>
+      <tbody>
+        <tr><td>Microsoft Threat Modeling Tool</td><td>可视化威胁建模</td><td>设计阶段</td></tr>
+        <tr><td>OWASP Threat Dragon</td><td>开源威胁建模工具</td><td>设计阶段</td></tr>
+        <tr><td>OWASP ASVS</td><td>安全需求标准</td><td>需求/测试</td></tr>
+        <tr><td>OWASP SAMM</td><td>软件安全成熟度模型</td><td>全生命周期</td></tr>
+        <tr><td>NIST SSDF</td><td>安全软件开发框架</td><td>全生命周期</td></tr>
+        <tr><td>CWE (Common Weakness Enumeration)</td><td>软件缺陷分类</td><td>编码/测试</td></tr>
+      </tbody>
+    </table>
+
+    <div class="nav-footer">
+      <a href="A03_注入攻击.html">&larr; A03: 注入攻击</a>
+      <a href="A05_安全配置错误.html">A05: 安全配置错误 &rarr;</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

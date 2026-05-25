@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>安全体系建设与职业规划 - 安全体系与进阶</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <nav class="sidebar">
+    <h2>安全体系与进阶</h2>
+    <ul>
+      <li><a href="01_SDL安全开发.html">安全开发生命周期</a></li>
+      <li><a href="02_安全体系建设.html" class="active">安全体系与职业规划</a></li>
+    </ul>
+    <h2>本页目录</h2>
+    <ul>
+      <li><a href="#enterprise">企业安全体系</a></li>
+      <li><a href="#frameworks">安全框架标准</a></li>
+      <li><a href="#soc">安全运营中心</a></li>
+      <li><a href="#incident">应急响应</a></li>
+      <li><a href="#career">安全职业方向</a></li>
+      <li><a href="#certifications">安全认证</a></li>
+      <li><a href="#learning">学习路线图</a></li>
+    </ul>
+    <h2>导航</h2>
+    <ul>
+      <li><a href="../index.html">返回首页</a></li>
+    </ul>
+  </nav>
+
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../index.html">首页</a> / <a href="01_SDL安全开发.html">安全体系与进阶</a> / 安全体系与职业规划
+    </div>
+
+    <h1>企业安全体系建设与职业规划</h1>
+    <p>学完技术后的下一步：了解企业安全的全貌，选择自己的安全职业方向。</p>
+
+    <!-- Section 1 -->
+    <h2 id="enterprise">1. 企业安全体系全景</h2>
+
+    <div class="diagram">企业安全体系层次：
+
+┌─────────────────────────────────────────────────────────────────┐
+│                      安全治理与合规                                │
+│  (安全策略、组织架构、风险管理、合规审计、安全文化)                   │
+├─────────────────────────────────────────────────────────────────┤
+│                      安全运营 (SOC)                               │
+│  (监控告警、事件响应、威胁情报、漏洞管理)                           │
+├───────────────────┬───────────────────┬─────────────────────────┤
+│   应用安全         │   基础设施安全     │    数据安全              │
+│  (SDL/DevSecOps   │  (网络/主机/云    │   (分类分级/加密/        │
+│   WAF/RASP        │   防火墙/IDS/EDR  │    DLP/脱敏)            │
+│   API安全)        │   零信任)         │                         │
+├───────────────────┴───────────────────┴─────────────────────────┤
+│                      业务安全                                     │
+│  (反欺诈、风控、内容安全、隐私保护)                                │
+└─────────────────────────────────────────────────────────────────┘</div>
+
+    <h3>1.1 安全团队组成</h3>
+    <table>
+      <thead><tr><th>团队</th><th>职责</th><th>核心技能</th></tr></thead>
+      <tbody>
+        <tr><td>安全研究(红队)</td><td>漏洞挖掘、渗透测试、攻击模拟</td><td>漏洞利用、逆向、代码审计</td></tr>
+        <tr><td>安全开发(蓝队)</td><td>安全产品开发、防御工具建设</td><td>开发能力、安全架构</td></tr>
+        <tr><td>安全运营</td><td>监控告警、事件响应、运维加固</td><td>SIEM、日志分析、应急处置</td></tr>
+        <tr><td>应用安全</td><td>SDL推进、代码审计、安全评审</td><td>Web安全、安全开发、沟通协调</td></tr>
+        <tr><td>合规/GRC</td><td>制度流程、风险评估、审计合规</td><td>ISO27001、等保、GDPR</td></tr>
+        <tr><td>业务安全</td><td>风控策略、反欺诈、内容审核</td><td>数据分析、机器学习、业务理解</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 2 -->
+    <h2 id="frameworks">2. 安全框架与标准</h2>
+
+    <table>
+      <thead><tr><th>框架/标准</th><th>发布者</th><th>用途</th><th>适用场景</th></tr></thead>
+      <tbody>
+        <tr><td><strong>NIST CSF</strong></td><td>美国NIST</td><td>网络安全框架(识别/保护/检测/响应/恢复)</td><td>通用、国际认可</td></tr>
+        <tr><td><strong>ISO 27001</strong></td><td>ISO</td><td>信息安全管理体系(ISMS)</td><td>国际认证、企业合规</td></tr>
+        <tr><td><strong>等保2.0</strong></td><td>中国公安部</td><td>网络安全等级保护</td><td>中国境内企业必须</td></tr>
+        <tr><td><strong>OWASP SAMM</strong></td><td>OWASP</td><td>软件安全成熟度模型</td><td>评估SDL成熟度</td></tr>
+        <tr><td><strong>MITRE ATT&CK</strong></td><td>MITRE</td><td>攻击技术知识库</td><td>威胁检测、红蓝对抗</td></tr>
+        <tr><td><strong>CIS Controls</strong></td><td>CIS</td><td>安全控制优先级清单</td><td>安全建设路线图</td></tr>
+        <tr><td><strong>GDPR</strong></td><td>欧盟</td><td>通用数据保护条例</td><td>涉及欧盟用户数据</td></tr>
+        <tr><td><strong>PCI DSS</strong></td><td>PCI SSC</td><td>支付卡数据安全标准</td><td>处理信用卡数据</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 3 -->
+    <h2 id="soc">3. 安全运营中心 (SOC)</h2>
+
+    <div class="diagram">SOC 运营流程：
+
+数据源                    SIEM平台                    响应
+─────────              ─────────                  ─────────
+防火墙日志 ──┐         ┌──────────────┐          ┌─ 自动阻断
+IDS/IPS ────┤         │  日志聚合     │          │  (SOAR)
+WAF日志 ────┤────────→│  关联分析     │──告警──→├─ 人工研判
+终端EDR ────┤         │  规则引擎     │          │  (L1/L2/L3)
+应用日志 ───┤         │  机器学习     │          ├─ 事件升级
+云审计日志 ──┘         │  威胁情报匹配 │          └─ 溯源取证
+                     └──────────────┘
+
+SOC 分级：
+  L1 分析师: 告警初筛、误报过滤、简单处置
+  L2 分析师: 深入分析、事件确认、取证调查
+  L3 专家:   高级威胁分析、APT追踪、规则优化
+
+关键指标(KPI)：
+  MTTD (平均检测时间): 发现入侵需要多久？
+  MTTR (平均响应时间): 从发现到处置需要多久？
+  误报率: 告警中有多少是误报？</div>
+
+    <!-- Section 4 -->
+    <h2 id="incident">4. 应急响应</h2>
+
+    <h3>4.1 应急响应流程 (NIST SP 800-61)</h3>
+    <div class="diagram">应急响应六步法：
+
+┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐
+│  准备    │→  │  识别    │→  │  遏制    │→  │  根除    │→  │  恢复    │→  │  总结    │
+│Prepare  │    │Identify │    │Contain  │    │Eradicate│    │Recover  │    │Lessons  │
+│         │    │         │    │         │    │         │    │         │    │Learned  │
+└─────────┘    └─────────┘    └─────────┘    └─────────┘    └─────────┘    └─────────┘
+ 预案制定       确认事件       阻止扩散       清除威胁       恢复业务       复盘改进
+ 工具准备       影响评估       隔离主机       修补漏洞       验证安全       更新预案
+ 人员培训       证据保留       流量封堵       删除后门       监控观察       能力提升</div>
+
+    <h3>4.2 常见安全事件处置</h3>
+    <table>
+      <thead><tr><th>事件类型</th><th>应急动作</th><th>取证要点</th></tr></thead>
+      <tbody>
+        <tr><td>Web 入侵</td><td>WAF封禁IP、应用下线、检查WebShell</td><td>Web日志、上传文件、数据库操作记录</td></tr>
+        <tr><td>数据泄露</td><td>切断泄露通道、评估影响范围</td><td>访问日志、数据库审计、网络流量</td></tr>
+        <tr><td>勒索软件</td><td>隔离感染主机、禁止横向移动</td><td>内存dump、恶意样本、加密文件</td></tr>
+        <tr><td>DDoS 攻击</td><td>启用CDN/高防、流量清洗</td><td>流量特征、攻击源IP</td></tr>
+        <tr><td>内部威胁</td><td>账号冻结、权限回收</td><td>操作审计、通信记录</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 5 -->
+    <h2 id="career">5. 安全职业方向</h2>
+
+    <table>
+      <thead><tr><th>方向</th><th>岗位示例</th><th>核心技能</th><th>发展前景</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Web安全/渗透测试</strong></td><td>渗透测试工程师、安全研究员</td><td>OWASP Top10、漏洞利用、工具使用</td><td>入门首选，需求大</td></tr>
+        <tr><td><strong>二进制安全</strong></td><td>漏洞研究员、逆向工程师</td><td>汇编、逆向、Fuzzing、Exploit开发</td><td>门槛高、薪资高</td></tr>
+        <tr><td><strong>安全开发</strong></td><td>安全工具开发、SDL工程师</td><td>编程能力+安全知识</td><td>需求增长快</td></tr>
+        <tr><td><strong>安全运营</strong></td><td>SOC分析师、应急响应</td><td>日志分析、威胁检测、取证</td><td>企业刚需</td></tr>
+        <tr><td><strong>云安全</strong></td><td>云安全工程师、DevSecOps</td><td>AWS/Azure/GCP安全、容器安全</td><td>增长最快</td></tr>
+        <tr><td><strong>合规/GRC</strong></td><td>信息安全顾问、合规专员</td><td>等保、ISO27001、风险评估</td><td>稳定、管理向</td></tr>
+        <tr><td><strong>业务安全/风控</strong></td><td>风控策略分析师</td><td>数据分析、策略引擎、反欺诈</td><td>互联网公司需求大</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 6 -->
+    <h2 id="certifications">6. 安全认证</h2>
+
+    <table>
+      <thead><tr><th>认证</th><th>发证机构</th><th>难度</th><th>适合方向</th><th>含金量</th></tr></thead>
+      <tbody>
+        <tr><td>OSCP</td><td>Offensive Security</td><td>高</td><td>渗透测试</td><td>极高（实操考试）</td></tr>
+        <tr><td>CISSP</td><td>ISC²</td><td>中高</td><td>安全管理</td><td>极高（国际认可）</td></tr>
+        <tr><td>CEH</td><td>EC-Council</td><td>中</td><td>入门/渗透</td><td>中等</td></tr>
+        <tr><td>CISP</td><td>中国信息安全测评中心</td><td>中</td><td>国内合规</td><td>国内认可</td></tr>
+        <tr><td>CompTIA Security+</td><td>CompTIA</td><td>中低</td><td>入门</td><td>国际入门级</td></tr>
+        <tr><td>AWS Security Specialty</td><td>AWS</td><td>中高</td><td>云安全</td><td>云安全方向高</td></tr>
+        <tr><td>CRTP/CRTO</td><td>PentesterAcademy</td><td>高</td><td>内网/红队</td><td>红队方向高</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 7 -->
+    <h2 id="learning">7. 学习路线图</h2>
+
+    <div class="diagram">Web安全工程师成长路线：
+
+Level 1: 安全新手 (0-6个月)
+──────────────────────────
+  □ 计算机网络基础 (TCP/IP, HTTP)
+  □ Linux 基础操作
+  □ 一门编程语言 (Python推荐)
+  □ OWASP Top 10 理论学习
+  □ 搭建靶场练习 (DVWA, WebGoat, Pikachu)
+  □ 学会使用 Burp Suite
+
+Level 2: 初级安全工程师 (6-18个月)
+──────────────────────────────────
+  □ 掌握各类漏洞原理与利用
+  □ 能独立完成简单渗透测试
+  □ 参加 CTF 比赛
+  □ HackTheBox/TryHackMe 刷题
+  □ 学习代码审计基础
+  □ 了解常见WAF及其绕过
+
+Level 3: 中级安全工程师 (1.5-3年)
+─────────────────────────────────
+  □ 能发现真实漏洞 (SRC/Bug Bounty)
+  □ 掌握内网渗透基础
+  □ 深入某个方向 (Web/二进制/云)
+  □ 能编写安全工具
+  □ 理解企业安全体系
+  □ 考取 OSCP 或同等认证
+
+Level 4: 高级安全专家 (3-5年+)
+──────────────────────────────
+  □ 某领域深度专家
+  □ 能设计安全架构
+  □ 能带领团队
+  □ 有 CVE 或高质量安全研究
+  □ 能做安全培训和分享
+  □ 行业影响力
+
+推荐实践平台：
+  入门: DVWA → Pikachu → WebGoat → Juice Shop
+  进阶: HackTheBox → TryHackMe → VulnHub
+  实战: Bug Bounty (HackerOne, 补天, 漏洞盒子)
+  比赛: CTFtime.org 找比赛</div>
+
+    <div class="info-box success">
+      <div class="box-title">给初学者的建议</div>
+      <ol>
+        <li><strong>先打好基础</strong>：网络、编程、操作系统是一切的前提</li>
+        <li><strong>动手实践</strong>：安全必须靠练，光看理论远远不够</li>
+        <li><strong>从 Web 安全入手</strong>：门槛相对低，资源多，需求大</li>
+        <li><strong>坚持输出</strong>：写博客、做笔记、分享总结</li>
+        <li><strong>加入社区</strong>：参加安全会议、加入CTF战队</li>
+        <li><strong>持续学习</strong>：安全领域变化极快，必须保持学习</li>
+      </ol>
+    </div>
+
+    <div class="nav-footer">
+      <a href="01_SDL安全开发.html">&larr; SDL安全开发</a>
+      <a href="../index.html">返回首页 &rarr;</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

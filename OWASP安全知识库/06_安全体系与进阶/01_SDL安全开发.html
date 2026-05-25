@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>安全开发生命周期(SDL) - 安全体系与进阶</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <nav class="sidebar">
+    <h2>安全体系与进阶</h2>
+    <ul>
+      <li><a href="01_SDL安全开发.html" class="active">安全开发生命周期</a></li>
+      <li><a href="02_安全体系建设.html">安全体系与职业规划</a></li>
+    </ul>
+    <h2>本页目录</h2>
+    <ul>
+      <li><a href="#overview">SDL概述</a></li>
+      <li><a href="#phases">SDL各阶段</a></li>
+      <li><a href="#threat-model">威胁建模</a></li>
+      <li><a href="#secure-code">安全编码</a></li>
+      <li><a href="#code-review">代码审计</a></li>
+      <li><a href="#testing">安全测试</a></li>
+      <li><a href="#devsecops">DevSecOps</a></li>
+      <li><a href="#tools">工具链</a></li>
+    </ul>
+    <h2>导航</h2>
+    <ul>
+      <li><a href="../index.html">返回首页</a></li>
+    </ul>
+  </nav>
+
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../index.html">首页</a> / <a href="01_SDL安全开发.html">安全体系与进阶</a> / 安全开发生命周期
+    </div>
+
+    <h1>安全开发生命周期 (SDL)</h1>
+    <p>SDL (Security Development Lifecycle) 是微软提出的将安全融入软件开发全生命周期的方法论。目标是<strong>"在开发过程中预防漏洞，而不是上线后修补"</strong>。</p>
+
+    <div class="info-box note">
+      <div class="box-title">为什么学SDL？</div>
+      <p>作为安全工程师，理解SDL让你：</p>
+      <ul>
+        <li>知道漏洞在开发流程中<strong>哪个环节</strong>应该被发现和修复</li>
+        <li>理解安全左移（Shift Left）的思想：越早发现漏洞，修复成本越低</li>
+        <li>能够与开发团队有效协作，推动安全实践落地</li>
+      </ul>
+    </div>
+
+    <!-- Section 1 -->
+    <h2 id="overview">1. SDL 概述</h2>
+
+    <h3>1.1 修复成本曲线</h3>
+    <div class="diagram">漏洞修复成本随开发阶段指数增长：
+
+成本
+  ^
+  |                                          ████ 生产环境
+  |                                    ████       ($10000+)
+  |                              ████
+  |                        ████ 测试阶段
+  |                  ████       ($500)
+  |            ████
+  |      ████ 编码阶段
+  | ████      ($100)
+  |
+  ████ 设计阶段
+       ($10)
+  +──────────────────────────────────────→ 开发阶段
+    需求  设计  编码  测试  部署  运维
+
+结论：设计阶段发现问题的修复成本是生产环境的 1/1000
+     → 安全左移(Shift Left)的核心价值</div>
+
+    <h3>1.2 SDL vs 传统安全</h3>
+    <table>
+      <thead><tr><th>传统模式</th><th>SDL模式</th></tr></thead>
+      <tbody>
+        <tr><td>开发完成后做渗透测试</td><td>每个阶段都有安全活动</td></tr>
+        <tr><td>安全是"最后一道关"</td><td>安全是"每个人的责任"</td></tr>
+        <tr><td>发现问题后修补（被动）</td><td>预防问题产生（主动）</td></tr>
+        <tr><td>安全团队vs开发团队对立</td><td>安全团队赋能开发团队</td></tr>
+        <tr><td>修复成本高、周期长</td><td>早期修复，成本低</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 2 -->
+    <h2 id="phases">2. SDL 各阶段</h2>
+
+    <div class="diagram">SDL 七个阶段：
+
+┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐
+│  培训    │→│  需求    │→│  设计    │→│  实现    │→│  验证    │→│  发布    │→│  响应    │
+│Training │  │Require- │  │ Design  │  │Implement│  │Verify   │  │Release  │  │Response │
+│         │  │ments    │  │         │  │ation    │  │         │  │         │  │         │
+└─────────┘  └─────────┘  └─────────┘  └─────────┘  └─────────┘  └─────────┘  └─────────┘
+     │            │            │            │            │            │            │
+  安全意识     安全需求     威胁建模     安全编码     安全测试     最终审查     应急响应
+  培训        分析        攻击面分析   代码审计     渗透测试     发布标准     漏洞管理
+              隐私评估     安全架构     静态分析     动态分析     部署加固     补丁发布</div>
+
+    <table>
+      <thead><tr><th>阶段</th><th>安全活动</th><th>输出物</th></tr></thead>
+      <tbody>
+        <tr><td><strong>培训</strong></td><td>安全意识培训、OWASP Top 10 教育</td><td>培训记录</td></tr>
+        <tr><td><strong>需求</strong></td><td>安全需求定义、合规要求梳理</td><td>安全需求文档</td></tr>
+        <tr><td><strong>设计</strong></td><td>威胁建模(STRIDE)、攻击面分析</td><td>威胁模型报告</td></tr>
+        <tr><td><strong>实现</strong></td><td>安全编码规范、静态代码扫描</td><td>SAST报告</td></tr>
+        <tr><td><strong>验证</strong></td><td>动态测试(DAST)、渗透测试、模糊测试</td><td>测试报告</td></tr>
+        <tr><td><strong>发布</strong></td><td>最终安全审查(FSR)、应急响应计划</td><td>发布审批</td></tr>
+        <tr><td><strong>响应</strong></td><td>安全事件响应、漏洞管理</td><td>事件报告、补丁</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 3 -->
+    <h2 id="threat-model">3. 威胁建模 (Threat Modeling)</h2>
+
+    <p>威胁建模是 SDL 中最核心的设计阶段活动。目标是在写代码之前，识别系统可能面临的威胁。</p>
+
+    <h3>3.1 STRIDE 模型</h3>
+    <table>
+      <thead><tr><th>缩写</th><th>威胁类型</th><th>说明</th><th>对应安全属性</th><th>示例</th></tr></thead>
+      <tbody>
+        <tr><td><strong>S</strong></td><td>Spoofing(仿冒)</td><td>冒充他人身份</td><td>认证</td><td>伪造登录凭证</td></tr>
+        <tr><td><strong>T</strong></td><td>Tampering(篡改)</td><td>未授权修改数据</td><td>完整性</td><td>修改转账金额</td></tr>
+        <tr><td><strong>R</strong></td><td>Repudiation(否认)</td><td>否认执行过的操作</td><td>不可否认</td><td>否认下过订单</td></tr>
+        <tr><td><strong>I</strong></td><td>Info Disclosure(信息泄露)</td><td>未授权访问信息</td><td>机密性</td><td>泄露用户密码</td></tr>
+        <tr><td><strong>D</strong></td><td>DoS(拒绝服务)</td><td>使服务不可用</td><td>可用性</td><td>DDoS攻击</td></tr>
+        <tr><td><strong>E</strong></td><td>Elevation(提权)</td><td>获取更高权限</td><td>授权</td><td>普通用户→管理员</td></tr>
+      </tbody>
+    </table>
+
+    <h3>3.2 威胁建模流程</h3>
+    <div class="diagram">威胁建模四步法：
+
+Step 1: 画数据流图(DFD)
+──────────────────────
+  [用户] ──HTTP──→ [Web服务器] ──SQL──→ [数据库]
+     │                  │
+     │              [文件系统]
+     │                  │
+     └───── HTTPS ──→ [第三方API]
+
+  标识：
+  ○ 外部实体 (用户、第三方)
+  □ 处理过程 (Web服务器、业务逻辑)
+  ═ 数据存储 (数据库、文件)
+  → 数据流 (HTTP、SQL连接)
+  --- 信任边界 (内网/外网分界)
+
+Step 2: 识别威胁 (对每个元素应用STRIDE)
+────────────────────────────────────────
+  数据流 "HTTP请求":
+    S - 伪造用户身份 (未认证)
+    T - 篡改请求参数 (注入)
+    I - 明文传输被窃听
+    D - 发送大量请求
+
+Step 3: 评估风险 (DREAD评分)
+────────────────────────────
+  D(Damage)=8, R(Reproducibility)=10, E(Exploitability)=7,
+  A(Affected Users)=9, D(Discoverability)=6
+  风险分 = (8+10+7+9+6)/5 = 8 (高)
+
+Step 4: 制定缓解措施
+────────────────────
+  威胁: HTTP明文传输被窃听
+  缓解: 强制 HTTPS + HSTS</div>
+
+    <!-- Section 4 -->
+    <h2 id="secure-code">4. 安全编码规范</h2>
+
+    <h3>4.1 核心原则</h3>
+    <table>
+      <thead><tr><th>原则</th><th>说明</th><th>示例</th></tr></thead>
+      <tbody>
+        <tr><td>输入验证</td><td>所有外部输入都不可信</td><td>白名单验证、类型检查</td></tr>
+        <tr><td>输出编码</td><td>输出到不同上下文时正确编码</td><td>HTML编码、SQL参数化</td></tr>
+        <tr><td>最小权限</td><td>代码只请求必要的权限</td><td>数据库只读账户</td></tr>
+        <tr><td>纵深防御</td><td>多层防护，不依赖单一措施</td><td>WAF + 代码验证 + CSP</td></tr>
+        <tr><td>安全默认</td><td>默认配置应该是安全的</td><td>Cookie默认HttpOnly</td></tr>
+        <tr><td>失败安全</td><td>出错时倒向安全一侧</td><td>异常时拒绝访问</td></tr>
+      </tbody>
+    </table>
+
+    <h3>4.2 常见安全编码规则</h3>
+    <pre><code># 规则1: 永远不要信任用户输入
+# ❌
+query = f"SELECT * FROM users WHERE id = {request.args['id']}"
+# ✅
+query = "SELECT * FROM users WHERE id = ?"
+cursor.execute(query, (int(request.args['id']),))
+
+# 规则2: 使用安全的密码存储
+# ❌
+password_hash = hashlib.md5(password.encode()).hexdigest()
+# ✅
+password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+
+# 规则3: 避免硬编码密钥
+# ❌
+SECRET_KEY = "my-super-secret-key-12345"
+# ✅
+SECRET_KEY = os.environ.get('SECRET_KEY')
+
+# 规则4: 安全的错误处理
+# ❌ (泄露内部信息)
+except Exception as e:
+    return {"error": str(e), "traceback": traceback.format_exc()}
+# ✅
+except Exception as e:
+    logger.error(f"Error: {e}", exc_info=True)  # 记录详细日志
+    return {"error": "An internal error occurred"}, 500  # 返回通用消息
+
+# 规则5: 安全的文件操作
+# ❌ (目录遍历)
+filepath = os.path.join('/uploads', user_filename)
+# ✅
+filepath = os.path.join('/uploads', secure_filename(user_filename))
+if not os.path.realpath(filepath).startswith('/uploads'):
+    abort(403)</code></pre>
+
+    <!-- Section 5 -->
+    <h2 id="code-review">5. 安全代码审计</h2>
+
+    <h3>5.1 审计关注点</h3>
+    <table>
+      <thead><tr><th>漏洞类型</th><th>代码特征(Code Pattern)</th><th>搜索关键词</th></tr></thead>
+      <tbody>
+        <tr><td>SQL注入</td><td>字符串拼接SQL</td><td><code>f"SELECT, .format(, %s" %, + query</code></td></tr>
+        <tr><td>命令注入</td><td>调用系统命令</td><td><code>os.system, subprocess, exec, eval</code></td></tr>
+        <tr><td>XSS</td><td>未编码输出</td><td><code>innerHTML, dangerouslySetInnerHTML, |safe, render_template_string</code></td></tr>
+        <tr><td>路径遍历</td><td>文件操作含用户输入</td><td><code>open(, file_get_contents, include, require</code></td></tr>
+        <tr><td>SSRF</td><td>URL由用户控制</td><td><code>requests.get(url, urllib.urlopen, fetch(</code></td></tr>
+        <tr><td>反序列化</td><td>反序列化不可信数据</td><td><code>pickle.loads, yaml.load, unserialize, ObjectInputStream</code></td></tr>
+        <tr><td>硬编码密钥</td><td>代码中的密钥/密码</td><td><code>password=, secret=, key=, token=, api_key</code></td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.2 自动化工具(SAST)</h3>
+    <pre><code># Semgrep - 开源语义代码扫描
+semgrep --config=p/owasp-top-ten .
+semgrep --config=p/python .
+
+# Bandit - Python安全扫描
+pip install bandit
+bandit -r ./src -f json -o report.json
+
+# SonarQube - 综合代码质量+安全
+# 集成到CI/CD流水线
+
+# CodeQL - GitHub高级安全扫描
+# 通过GitHub Actions自动运行</code></pre>
+
+    <!-- Section 6 -->
+    <h2 id="testing">6. 安全测试</h2>
+
+    <h3>6.1 测试类型对比</h3>
+    <table>
+      <thead><tr><th>类型</th><th>全称</th><th>方式</th><th>优点</th><th>缺点</th></tr></thead>
+      <tbody>
+        <tr><td>SAST</td><td>静态应用安全测试</td><td>分析源代码</td><td>早期发现、覆盖率高</td><td>误报多、无法发现逻辑漏洞</td></tr>
+        <tr><td>DAST</td><td>动态应用安全测试</td><td>运行时黑盒测试</td><td>真实漏洞、低误报</td><td>覆盖率低、需要运行环境</td></tr>
+        <tr><td>IAST</td><td>交互式应用安全测试</td><td>运行时插桩</td><td>精确、低误报</td><td>侵入性、性能影响</td></tr>
+        <tr><td>SCA</td><td>软件组成分析</td><td>扫描依赖组件</td><td>发现已知CVE</td><td>只查已知漏洞</td></tr>
+        <tr><td>渗透测试</td><td>Penetration Testing</td><td>人工攻击模拟</td><td>发现逻辑漏洞</td><td>贵、覆盖有限</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 7 -->
+    <h2 id="devsecops">7. DevSecOps</h2>
+
+    <p>DevSecOps = 将安全无缝集成到 DevOps 流程中。</p>
+
+    <div class="diagram">DevSecOps 流水线：
+
+  Plan → Code → Build → Test → Release → Deploy → Operate → Monitor
+    │       │       │       │       │        │         │         │
+  威胁建模  IDE插件  SAST   DAST   SCA审计  配置加固  运行时防护  日志监控
+  安全需求  pre-commit 依赖检查 渗透测试 签名验证  密钥管理  WAF/RASP  SIEM告警
+           lint     容器扫描  模糊测试           最小权限  入侵检测  事件响应
+
+CI/CD 安全门禁示例 (GitHub Actions):
+─────────────────────────────────────
+  ┌─ Push/PR ─→ SAST扫描 ─→ 依赖检查 ─→ 单元测试 ─→ 构建 ─→ 容器扫描 ─→ DAST ─→ 部署
+  │                │             │                              │           │
+  │            高危阻断        CVE阻断                      镜像签名     API测试
+  │                │             │                              │           │
+  └────────────── 任一环节失败 → 流水线中止 → 通知开发者 ─────────────────────┘</div>
+
+    <pre><code># GitHub Actions 安全扫描示例
+name: Security Pipeline
+on: [push, pull_request]
+
+jobs:
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: p/owasp-top-ten
+
+  dependency-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Snyk
+        uses: snyk/actions/python@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+
+  container-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'myapp:latest'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'</code></pre>
+
+    <!-- Section 8 -->
+    <h2 id="tools">8. SDL 工具链</h2>
+
+    <table>
+      <thead><tr><th>阶段</th><th>工具</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>设计</td><td>Microsoft Threat Modeling Tool</td><td>威胁建模</td><td>生成DFD、自动识别STRIDE威胁</td></tr>
+        <tr><td>设计</td><td>OWASP Threat Dragon</td><td>威胁建模</td><td>开源替代方案</td></tr>
+        <tr><td>编码</td><td>Semgrep</td><td>SAST</td><td>开源、多语言、可自定义规则</td></tr>
+        <tr><td>编码</td><td>SonarQube</td><td>SAST+质量</td><td>企业级、集成CI/CD</td></tr>
+        <tr><td>编码</td><td>Bandit(Python)/ESLint(JS)</td><td>Linter</td><td>语言特定的安全检查</td></tr>
+        <tr><td>构建</td><td>Snyk / Dependabot</td><td>SCA</td><td>依赖漏洞扫描</td></tr>
+        <tr><td>构建</td><td>Trivy / Grype</td><td>容器扫描</td><td>Docker镜像漏洞</td></tr>
+        <tr><td>测试</td><td>OWASP ZAP</td><td>DAST</td><td>开源Web扫描器</td></tr>
+        <tr><td>测试</td><td>Burp Suite</td><td>DAST+手动</td><td>渗透测试标配</td></tr>
+        <tr><td>运维</td><td>Falco</td><td>运行时检测</td><td>K8s运行时安全</td></tr>
+        <tr><td>监控</td><td>ELK/Splunk</td><td>SIEM</td><td>日志集中分析</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box success">
+      <div class="box-title">关键认知</div>
+      <p>SDL 不是额外的负担，而是<strong>降低总成本</strong>的方法。预防一个漏洞的成本远低于事后修复+数据泄露赔偿。安全不是某个团队的事，而是整个开发流程的一部分。</p>
+    </div>
+
+    <div class="nav-footer">
+      <a href="../05_工具与实战/02_CTF入门.html">&larr; CTF入门</a>
+      <a href="02_安全体系建设.html">安全体系建设 &rarr;</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

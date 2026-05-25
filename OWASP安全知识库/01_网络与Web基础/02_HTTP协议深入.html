@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTTP 协议深入 - OWASP 安全知识库</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <nav class="sidebar">
+    <h2>网络与Web基础</h2>
+    <ul>
+      <li><a href="01_TCP_IP协议栈.html">TCP/IP 协议栈安全</a></li>
+      <li><a href="02_HTTP协议深入.html" class="active">HTTP 协议深入</a></li>
+    </ul>
+    <h2>本页目录</h2>
+    <ul>
+      <li><a href="#basics">HTTP基础</a></li>
+      <li><a href="#request">请求结构</a></li>
+      <li><a href="#response">响应结构</a></li>
+      <li><a href="#methods">HTTP方法</a></li>
+      <li><a href="#headers-security">安全相关头</a></li>
+      <li><a href="#cookies">Cookie与Session</a></li>
+      <li><a href="#https">HTTPS/TLS</a></li>
+      <li><a href="#http2">HTTP/2与HTTP/3</a></li>
+      <li><a href="#web-arch">Web应用架构</a></li>
+    </ul>
+    <h2>导航</h2>
+    <ul>
+      <li><a href="../index.html">返回首页</a></li>
+    </ul>
+  </nav>
+
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../index.html">首页</a> / <a href="01_TCP_IP协议栈.html">网络与Web基础</a> / HTTP 协议深入
+    </div>
+
+    <h1>HTTP 协议深入（安全视角）</h1>
+    <p>HTTP 是 Web 的基石。理解 HTTP 协议的每个细节，是发现和利用 Web 漏洞的前提。本章从安全角度深入 HTTP。</p>
+
+    <!-- Section 1 -->
+    <h2 id="basics">1. HTTP 基础</h2>
+
+    <h3>1.1 HTTP 版本演进</h3>
+    <table>
+      <thead><tr><th>版本</th><th>年份</th><th>关键特性</th><th>安全相关</th></tr></thead>
+      <tbody>
+        <tr><td>HTTP/0.9</td><td>1991</td><td>只支持 GET，只有 HTML</td><td>无安全机制</td></tr>
+        <tr><td>HTTP/1.0</td><td>1996</td><td>支持 Header、状态码、多媒体</td><td>Basic Auth (明文)</td></tr>
+        <tr><td>HTTP/1.1</td><td>1997</td><td>持久连接、管道化、Host头</td><td>目前最广泛使用</td></tr>
+        <tr><td>HTTP/2</td><td>2015</td><td>多路复用、头部压缩、服务器推送</td><td>强制 TLS(事实标准)</td></tr>
+        <tr><td>HTTP/3</td><td>2022</td><td>基于 QUIC(UDP)、0-RTT</td><td>内置加密，抗中间人</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.2 HTTP 的无状态特性</h3>
+    <div class="info-box note">
+      <div class="box-title">为什么 HTTP 无状态是安全核心？</div>
+      <p>HTTP 本身不记录任何上下文。每次请求都是独立的。这意味着：</p>
+      <ul>
+        <li>服务器需要额外机制来"记住"用户（Cookie/Session/Token）</li>
+        <li>这些"额外机制"本身就是攻击目标（Session劫持、Cookie窃取、Token伪造）</li>
+        <li>无状态 = 需要在每个请求中携带身份凭证 = 凭证传输安全至关重要</li>
+      </ul>
+    </div>
+
+    <!-- Section 2 -->
+    <h2 id="request">2. HTTP 请求结构</h2>
+
+    <div class="diagram">HTTP 请求完整结构：
+
+┌─────────────────────────────────────────────────────────┐
+│ POST /api/login HTTP/1.1              ← 请求行          │
+├─────────────────────────────────────────────────────────┤
+│ Host: www.example.com                 ← 请求头(Headers) │
+│ User-Agent: Mozilla/5.0 ...                              │
+│ Content-Type: application/json                           │
+│ Content-Length: 51                                        │
+│ Cookie: session=abc123                                   │
+│ Authorization: Bearer eyJhbGci...                        │
+│ Origin: https://www.example.com                          │
+│ Referer: https://www.example.com/login                   │
+├─────────────────────────────────────────────────────────┤
+│                                       ← 空行(分隔头和体)│
+├─────────────────────────────────────────────────────────┤
+│ {"username":"admin","password":"123"} ← 请求体(Body)    │
+└─────────────────────────────────────────────────────────┘
+
+安全关注点：
+  - 请求行: 方法+路径 → 权限控制的目标
+  - Host头: HTTP走私、虚拟主机攻击
+  - Cookie: 会话管理、XSS窃取目标
+  - Authorization: 凭证泄露
+  - Content-Type: 影响服务端如何解析请求体
+  - Origin/Referer: CSRF防御依据</div>
+
+    <!-- Section 3 -->
+    <h2 id="response">3. HTTP 响应结构</h2>
+
+    <div class="diagram">HTTP 响应完整结构：
+
+┌─────────────────────────────────────────────────────────┐
+│ HTTP/1.1 200 OK                       ← 状态行          │
+├─────────────────────────────────────────────────────────┤
+│ Content-Type: text/html; charset=utf-8 ← 响应头         │
+│ Content-Length: 1234                                     │
+│ Set-Cookie: session=xyz789; HttpOnly; Secure; SameSite=Strict │
+│ X-Content-Type-Options: nosniff                          │
+│ X-Frame-Options: DENY                                    │
+│ Content-Security-Policy: default-src 'self'              │
+│ Strict-Transport-Security: max-age=31536000              │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+├─────────────────────────────────────────────────────────┤
+│ &lt;!DOCTYPE html&gt;...                    ← 响应体         │
+└─────────────────────────────────────────────────────────┘</div>
+
+    <h3>3.1 状态码与安全</h3>
+    <table>
+      <thead><tr><th>状态码</th><th>含义</th><th>安全意义</th></tr></thead>
+      <tbody>
+        <tr><td>200</td><td>OK</td><td>正常响应</td></tr>
+        <tr><td>301/302</td><td>重定向</td><td>开放重定向漏洞（钓鱼）</td></tr>
+        <tr><td>400</td><td>Bad Request</td><td>可能泄露输入验证信息</td></tr>
+        <tr><td>401</td><td>Unauthorized</td><td>未认证（用户名是否存在的信息泄露）</td></tr>
+        <tr><td>403</td><td>Forbidden</td><td>有权限控制，但可能被绕过</td></tr>
+        <tr><td>404</td><td>Not Found</td><td>资源枚举（403 vs 404 = 存在 vs 不存在）</td></tr>
+        <tr><td>405</td><td>Method Not Allowed</td><td>尝试其他HTTP方法</td></tr>
+        <tr><td>500</td><td>Server Error</td><td>可能泄露栈信息、触发注入线索</td></tr>
+        <tr><td>503</td><td>Service Unavailable</td><td>DoS 攻击成功的标志</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box warning">
+      <div class="box-title">信息泄露：403 vs 404</div>
+      <p>如果 <code>/admin/users</code> 返回 403（禁止），而 <code>/admin/xyz</code> 返回 404（不存在），攻击者就能枚举出有哪些管理接口存在。安全做法：对未授权用户统一返回 404 或一致的错误页面。</p>
+    </div>
+
+    <!-- Section 4 -->
+    <h2 id="methods">4. HTTP 方法详解</h2>
+
+    <table>
+      <thead><tr><th>方法</th><th>用途</th><th>幂等</th><th>安全风险</th></tr></thead>
+      <tbody>
+        <tr><td><strong>GET</strong></td><td>获取资源</td><td>是</td><td>参数在URL中(日志泄露/缓存泄露/Referer泄露)</td></tr>
+        <tr><td><strong>POST</strong></td><td>提交数据/创建资源</td><td>否</td><td>CSRF攻击的主要目标</td></tr>
+        <tr><td><strong>PUT</strong></td><td>替换/上传资源</td><td>是</td><td>如果未禁用：可上传webshell</td></tr>
+        <tr><td><strong>DELETE</strong></td><td>删除资源</td><td>是</td><td>未授权删除</td></tr>
+        <tr><td><strong>PATCH</strong></td><td>部分修改</td><td>否</td><td>参数注入修改非预期字段</td></tr>
+        <tr><td><strong>OPTIONS</strong></td><td>查看支持的方法</td><td>是</td><td>信息泄露、CORS预检</td></tr>
+        <tr><td><strong>TRACE</strong></td><td>回显请求（调试）</td><td>是</td><td>XST攻击(窃取HttpOnly Cookie)</td></tr>
+        <tr><td><strong>CONNECT</strong></td><td>建立隧道</td><td>-</td><td>代理滥用</td></tr>
+      </tbody>
+    </table>
+
+    <pre><code># 测试服务器支持哪些HTTP方法
+curl -X OPTIONS http://target.com/ -i
+
+# 尝试 PUT 上传（WebDAV漏洞）
+curl -X PUT http://target.com/shell.php -d '&lt;?php system($_GET["cmd"]); ?&gt;'
+
+# TRACE 方法测试
+curl -X TRACE http://target.com/ -H "Cookie: secret=abc123" -i
+# 如果返回包含 Cookie → XST 漏洞</code></pre>
+
+    <!-- Section 5 -->
+    <h2 id="headers-security">5. 安全相关 HTTP 头</h2>
+
+    <h3>5.1 防御性响应头</h3>
+    <table>
+      <thead><tr><th>响应头</th><th>作用</th><th>推荐值</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>Content-Security-Policy</code></td>
+          <td>限制资源加载来源，防XSS</td>
+          <td><code>default-src 'self'; script-src 'self'</code></td>
+        </tr>
+        <tr>
+          <td><code>X-Content-Type-Options</code></td>
+          <td>禁止MIME嗅探</td>
+          <td><code>nosniff</code></td>
+        </tr>
+        <tr>
+          <td><code>X-Frame-Options</code></td>
+          <td>防止点击劫持(Clickjacking)</td>
+          <td><code>DENY</code> 或 <code>SAMEORIGIN</code></td>
+        </tr>
+        <tr>
+          <td><code>Strict-Transport-Security</code></td>
+          <td>强制HTTPS(HSTS)</td>
+          <td><code>max-age=31536000; includeSubDomains</code></td>
+        </tr>
+        <tr>
+          <td><code>X-XSS-Protection</code></td>
+          <td>浏览器XSS过滤器(已废弃)</td>
+          <td><code>0</code>（禁用，因为可被利用）</td>
+        </tr>
+        <tr>
+          <td><code>Referrer-Policy</code></td>
+          <td>控制Referer头泄露</td>
+          <td><code>strict-origin-when-cross-origin</code></td>
+        </tr>
+        <tr>
+          <td><code>Permissions-Policy</code></td>
+          <td>控制浏览器功能(摄像头/麦克风等)</td>
+          <td><code>camera=(), microphone=()</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>5.2 Content-Security-Policy 详解</h3>
+    <p>CSP 是防御 XSS 最强大的 HTTP 头，它告诉浏览器只能从哪些来源加载资源。</p>
+    <pre><code># CSP 指令详解
+Content-Security-Policy:
+  default-src 'self';                    # 默认只允许同源
+  script-src 'self' https://cdn.example.com;  # JS来源
+  style-src 'self' 'unsafe-inline';      # CSS来源(允许内联)
+  img-src *;                             # 图片可从任何来源
+  font-src 'self' https://fonts.gstatic.com;
+  connect-src 'self' https://api.example.com;  # AJAX/WebSocket
+  frame-src 'none';                      # 禁止iframe
+  object-src 'none';                     # 禁止Flash等插件
+  base-uri 'self';                       # 限制&lt;base&gt;标签
+  form-action 'self';                    # 限制表单提交目标
+  report-uri /csp-report;               # 违规报告地址
+
+# 严格CSP（基于nonce）
+Content-Security-Policy: script-src 'nonce-abc123'; object-src 'none'
+# 页面中：&lt;script nonce="abc123"&gt;合法代码&lt;/script&gt;
+# 注入的script没有nonce → 不执行</code></pre>
+
+    <h3>5.3 HSTS（HTTP 严格传输安全）</h3>
+    <div class="diagram">没有 HSTS 的风险：
+
+用户输入 example.com → 浏览器发送 HTTP 请求
+   ↓
+攻击者(中间人) 拦截 HTTP 请求
+   ↓
+攻击者与用户之间保持 HTTP（明文）
+攻击者与服务器之间使用 HTTPS
+   ↓
+用户看到的是正常页面，但所有数据都经过攻击者！
+
+这叫 SSL Stripping 攻击（SSLstrip 工具）
+
+有 HSTS 后：
+  浏览器记住: "这个域名必须用HTTPS"
+  用户输入 example.com → 浏览器自动转为 https://example.com
+  → 中间人无法降级为HTTP
+
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+  max-age: 记住多久(秒)
+  includeSubDomains: 子域名也强制HTTPS
+  preload: 申请加入浏览器预加载列表(永久HTTPS)</div>
+
+    <!-- Section 6 -->
+    <h2 id="cookies">6. Cookie 与 Session 安全</h2>
+
+    <h3>6.1 Cookie 属性</h3>
+    <table>
+      <thead><tr><th>属性</th><th>作用</th><th>安全意义</th></tr></thead>
+      <tbody>
+        <tr><td><code>HttpOnly</code></td><td>JS无法读取(document.cookie)</td><td><strong>防XSS窃取Cookie</strong></td></tr>
+        <tr><td><code>Secure</code></td><td>只在HTTPS中发送</td><td>防中间人嗅探</td></tr>
+        <tr><td><code>SameSite=Strict</code></td><td>完全不随跨站请求发送</td><td><strong>防CSRF</strong></td></tr>
+        <tr><td><code>SameSite=Lax</code></td><td>GET导航请求可发送，POST不发</td><td>部分防CSRF(默认值)</td></tr>
+        <tr><td><code>SameSite=None</code></td><td>跨站也发送(需配合Secure)</td><td>第三方Cookie场景</td></tr>
+        <tr><td><code>Domain</code></td><td>Cookie的作用域</td><td>设置过宽=子域可读取</td></tr>
+        <tr><td><code>Path</code></td><td>Cookie的路径范围</td><td>通常设为 /</td></tr>
+        <tr><td><code>Max-Age/Expires</code></td><td>过期时间</td><td>不设置=会话Cookie(关浏览器即失效)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>6.2 安全的 Cookie 设置</h3>
+    <pre><code># 最安全的 session cookie 设置
+Set-Cookie: session_id=abc123;
+  HttpOnly;           # JS不可读
+  Secure;             # 只走HTTPS
+  SameSite=Strict;    # 不随跨站请求发送
+  Path=/;             # 全站生效
+  Max-Age=3600;       # 1小时过期
+  Domain=example.com  # 限定域名</code></pre>
+
+    <h3>6.3 Session vs Token 认证</h3>
+    <div class="diagram">Session 认证模式：
+─────────────────────────
+客户端                        服务端
+  |── POST /login ──────────→ | 验证成功
+  |                           | 创建 Session: {id: "xyz", user: "alice", role: "admin"}
+  |                           | 存储在内存/Redis/数据库
+  |←── Set-Cookie: sid=xyz ── |
+  |                           |
+  |── GET /api/data ────────→ | 读取 Cookie: sid=xyz
+  |   Cookie: sid=xyz         | 查找 Session 数据
+  |←── 200 OK ───────────── | 返回结果
+
+优点: 服务端可随时销毁session，状态完全可控
+缺点: 服务端需要存储，分布式系统需要共享session
+
+═══════════════════════════════════════════════
+
+Token (JWT) 认证模式：
+─────────────────────────
+客户端                        服务端
+  |── POST /login ──────────→ | 验证成功
+  |                           | 生成JWT: {user:"alice",role:"admin",exp:...}
+  |                           | 用密钥签名 (不存储!)
+  |←── {"token": "eyJ..."} ── |
+  |                           |
+  |── GET /api/data ────────→ | 读取 Header: Authorization
+  |   Authorization: Bearer eyJ... | 验证签名 + 检查过期
+  |←── 200 OK ───────────── | 返回结果（无需查数据库）
+
+优点: 无状态，天然适合分布式/微服务
+缺点: 无法主动注销(除非用黑名单)，token泄露危害大</div>
+
+    <!-- Section 7 -->
+    <h2 id="https">7. HTTPS 与 TLS</h2>
+
+    <h3>7.1 TLS 握手过程</h3>
+    <div class="diagram">TLS 1.2 握手（简化）：
+
+客户端                                    服务端
+  |                                         |
+  |── ClientHello ─────────────────────────→|
+  |   (支持的加密套件列表, 客户端随机数)       |
+  |                                         |
+  |←── ServerHello ─────────────────────── |
+  |   (选定的加密套件, 服务端随机数)           |
+  |←── Certificate ────────────────────── |
+  |   (服务器的X.509证书, 含公钥)             |
+  |←── ServerHelloDone ───────────────── |
+  |                                         |
+  |   [验证证书链是否可信]                     |
+  |                                         |
+  |── ClientKeyExchange ──────────────────→ |
+  |   (用服务器公钥加密的预主密钥)              |
+  |── ChangeCipherSpec ───────────────────→ |
+  |── Finished (加密) ────────────────────→ |
+  |                                         |
+  |←── ChangeCipherSpec ─────────────── |
+  |←── Finished (加密) ──────────────── |
+  |                                         |
+  |════ 加密通信开始 ═════════════════════════|
+
+TLS 1.3 改进：
+  - 1-RTT 握手(减少一个来回)
+  - 移除不安全的加密算法(RSA密钥交换、RC4、SHA-1等)
+  - 0-RTT 恢复(有重放风险但更快)</div>
+
+    <h3>7.2 HTTPS 不能防御什么</h3>
+    <div class="info-box warning">
+      <div class="box-title">常见误解</div>
+      <p>HTTPS 只保证<strong>传输安全</strong>（加密 + 完整性 + 身份验证），它<strong>不能防御</strong>：</p>
+      <ul>
+        <li>SQL 注入 / XSS / CSRF（这些是应用层逻辑漏洞）</li>
+        <li>服务端漏洞（RCE、SSRF 等）</li>
+        <li>社会工程攻击</li>
+        <li>客户端恶意软件</li>
+        <li>数据到达服务端后的泄露</li>
+      </ul>
+    </div>
+
+    <h3>7.3 TLS 相关攻击</h3>
+    <table>
+      <thead><tr><th>攻击</th><th>原理</th><th>现状</th></tr></thead>
+      <tbody>
+        <tr><td>SSL Stripping</td><td>中间人将 HTTPS 降级为 HTTP</td><td>HSTS 可防御</td></tr>
+        <tr><td>BEAST</td><td>TLS 1.0 CBC模式漏洞</td><td>已修复(TLS 1.1+)</td></tr>
+        <tr><td>POODLE</td><td>SSL 3.0 填充漏洞</td><td>SSL 3.0 已废弃</td></tr>
+        <tr><td>Heartbleed</td><td>OpenSSL 实现缺陷，泄露内存</td><td>已修补(2014)</td></tr>
+        <tr><td>CRIME/BREACH</td><td>利用压缩信息泄露</td><td>禁用TLS压缩</td></tr>
+        <tr><td>证书伪造</td><td>获取欺骗性证书</td><td>CT(证书透明度)检测</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 8 -->
+    <h2 id="http2">8. HTTP/2 与 HTTP/3</h2>
+
+    <h3>8.1 HTTP/2 新特性与安全</h3>
+    <table>
+      <thead><tr><th>特性</th><th>说明</th><th>安全影响</th></tr></thead>
+      <tbody>
+        <tr><td>二进制分帧</td><td>不再是纯文本，用二进制帧传输</td><td>传统文本注入难度增加，但有新的帧注入攻击</td></tr>
+        <tr><td>多路复用</td><td>单连接并行多个请求/响应</td><td>减少连接开销，但 Rapid Reset 攻击(CVE-2023-44487)</td></tr>
+        <tr><td>头部压缩(HPACK)</td><td>减少冗余头传输</td><td>CRIME类攻击的新变种需要关注</td></tr>
+        <tr><td>服务器推送</td><td>服务器主动推送资源</td><td>可被滥用推送恶意内容(大多已禁用)</td></tr>
+        <tr><td>强制TLS</td><td>主流浏览器只支持 h2 over TLS</td><td>提升传输安全基线</td></tr>
+      </tbody>
+    </table>
+
+    <h3>8.2 HTTP/2 特有攻击</h3>
+    <pre><code># HTTP/2 Rapid Reset Attack (2023年发现)
+# 攻击者快速发送请求然后立即RST_STREAM取消
+# 服务器消耗资源处理请求，但客户端几乎无开销
+# 创造了历史最大规模DDoS（Google记录: 3.98亿 RPS）
+
+# HTTP/2 请求走私（H2.CL/H2.TE Desync）
+# 利用 HTTP/2 到 HTTP/1.1 的降级代理
+# 构造歧义请求实现走私</code></pre>
+
+    <!-- Section 9 -->
+    <h2 id="web-arch">9. Web 应用架构（安全视角）</h2>
+
+    <div class="diagram">现代 Web 应用典型架构：
+
+                     ┌─── CDN/WAF (Cloudflare等)
+                     │      过滤恶意流量
+                     │
+用户浏览器 ─── HTTPS ──┤
+                     │
+                     └─── 反向代理/负载均衡 (Nginx)
+                              │
+                     ┌────────┼────────┐
+                     │        │        │
+                  App服务器1  App服务器2  App服务器3
+                  (API逻辑)  (API逻辑)  (API逻辑)
+                     │        │        │
+                     └────────┼────────┘
+                              │
+                     ┌────────┼────────┐
+                     │        │        │
+                  数据库     Redis    消息队列
+                 (MySQL)   (缓存/会话) (RabbitMQ)
+
+攻击面分析：
+  CDN/WAF层: WAF绕过、CDN回源IP泄露
+  反向代理层: 请求走私(HTTP Smuggling)、配置错误
+  应用层: OWASP Top 10 所有漏洞
+  数据层: SQL注入、未加密存储、备份泄露
+  组件间: SSRF(应用→内网服务)、Redis未授权
+
+纵深防御：每一层都需要安全措施，不能只依赖某一层</div>
+
+    <h3>9.1 同源策略（Same-Origin Policy）</h3>
+    <p>浏览器最核心的安全机制。限制一个源(Origin)的文档/脚本与另一个源的资源进行交互。</p>
+    <pre><code>// 同源 = 协议 + 域名 + 端口 完全相同
+
+// 以 https://www.example.com:443 为基准：
+https://www.example.com:443/page2     // ✅ 同源
+http://www.example.com:443/page       // ❌ 协议不同
+https://api.example.com:443/data      // ❌ 域名不同(子域名也不同!)
+https://www.example.com:8080/page     // ❌ 端口不同
+
+// 同源策略限制：
+// 1. DOM访问: iframe不能跨域读取父页面DOM
+// 2. Cookie: 不同源不能读取对方Cookie
+// 3. AJAX: 不能跨域发送请求(除非CORS允许)
+
+// 绕过同源策略的合法方式：
+// - CORS (跨域资源共享)
+// - JSONP (已过时，有安全风险)
+// - postMessage (窗口间通信)
+// - WebSocket (建立后无同源限制)</code></pre>
+
+    <h3>9.2 CORS（跨域资源共享）</h3>
+    <pre><code># CORS 头 - 服务器告诉浏览器允许哪些跨域请求
+
+# 允许特定域
+Access-Control-Allow-Origin: https://trusted.example.com
+
+# ❌ 危险：允许任意域 + 允许携带凭证
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Credentials: true
+# → 任何网站都能读取该API的响应(包含用户数据)！
+
+# 常见 CORS 配置错误：
+# 1. 反射 Origin 头（攻击者发什么就允许什么）
+# 2. 正则匹配不严格: evil-example.com 匹配 example.com
+# 3. null origin 白名单（sandbox iframe可伪造）
+
+# 安全 CORS 配置
+Access-Control-Allow-Origin: https://app.example.com
+Access-Control-Allow-Methods: GET, POST
+Access-Control-Allow-Headers: Content-Type, Authorization
+Access-Control-Allow-Credentials: true
+Access-Control-Max-Age: 86400</code></pre>
+
+    <div class="nav-footer">
+      <a href="01_TCP_IP协议栈.html">&larr; TCP/IP 协议栈</a>
+      <a href="../02_安全基础理论/01_密码学基础.html">密码学基础 &rarr;</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

